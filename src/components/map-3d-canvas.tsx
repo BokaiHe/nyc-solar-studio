@@ -238,38 +238,69 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
     }, [initialCamera, location, ready, roofHeightMeters]);
 
     useEffect(() => {
+      let cancelled = false;
+      const viewer = viewerRef.current;
       const source = panelSourceRef.current;
       const C = cesiumRef.current;
-      if (!source || !C || !ready) return;
+      if (!viewer || !source || !C || !ready) return;
       source.entities.removeAll();
-      for (const panel of panels) {
-        const selected = selectedIndices.has(panel.index);
-        const factor = panelLightFactors.get(panel.index) ?? 0;
-        const color = !selected
-          ? C.Color.WHITE.withAlpha(0.12)
-          : !sun?.daylight
-            ? C.Color.fromCssColorString('#334155').withAlpha(0.9)
-            : factor > 0.75
-              ? C.Color.fromCssColorString('#facc15').withAlpha(0.92)
-              : factor > 0.35
-                ? C.Color.fromCssColorString('#f97316').withAlpha(0.9)
-                : C.Color.fromCssColorString('#64748b').withAlpha(0.88);
-        source.entities.add({
-          id: `solar-panel-${panel.index}`,
-          polygon: {
-            hierarchy: new C.PolygonHierarchy(
-              panel.vertices.map((vertex) =>
-                C.Cartesian3.fromDegrees(vertex.longitude, vertex.latitude, vertex.altitude),
+      if (panels.length === 0) return;
+
+      const renderPanels = async () => {
+        const cartographics = panels.flatMap((panel) =>
+          panel.vertices.map((vertex) =>
+            C.Cartographic.fromDegrees(vertex.longitude, vertex.latitude, vertex.altitude),
+          ),
+        );
+        let sampled: Array<import('cesium').Cartographic | undefined> = cartographics;
+        if (viewer.scene.sampleHeightSupported) {
+          try {
+            sampled = await viewer.scene.sampleHeightMostDetailed(cartographics);
+          } catch {
+            sampled = cartographics;
+          }
+        }
+        if (cancelled) return;
+
+        for (const [panelOrder, panel] of panels.entries()) {
+          const selected = selectedIndices.has(panel.index);
+          const factor = panelLightFactors.get(panel.index) ?? 0;
+          const color = !selected
+            ? C.Color.WHITE.withAlpha(0.12)
+            : !sun?.daylight
+              ? C.Color.fromCssColorString('#334155').withAlpha(0.9)
+              : factor > 0.75
+                ? C.Color.fromCssColorString('#facc15').withAlpha(0.92)
+                : factor > 0.35
+                  ? C.Color.fromCssColorString('#f97316').withAlpha(0.9)
+                  : C.Color.fromCssColorString('#64748b').withAlpha(0.88);
+          source.entities.add({
+            id: `solar-panel-${panel.index}`,
+            polygon: {
+              hierarchy: new C.PolygonHierarchy(
+                panel.vertices.map((vertex, vertexIndex) => {
+                  const surface = sampled[panelOrder * 4 + vertexIndex];
+                  const altitude = surface?.height ?? vertex.altitude;
+                  return C.Cartesian3.fromDegrees(
+                    vertex.longitude,
+                    vertex.latitude,
+                    altitude + 0.16,
+                  );
+                }),
               ),
-            ),
-            perPositionHeight: true,
-            material: color,
-            outline: true,
-            outlineColor: selected ? C.Color.fromCssColorString('#e0f2fe') : C.Color.WHITE.withAlpha(0.55),
-            shadows: C.ShadowMode.ENABLED,
-          },
-        });
-      }
+              perPositionHeight: true,
+              material: color,
+              outline: true,
+              outlineColor: selected ? C.Color.fromCssColorString('#e0f2fe') : C.Color.WHITE.withAlpha(0.55),
+              shadows: C.ShadowMode.ENABLED,
+            },
+          });
+        }
+      };
+      void renderPanels();
+      return () => {
+        cancelled = true;
+      };
     }, [panelLightFactors, panels, ready, selectedIndices, sun?.daylight]);
 
     useEffect(() => {
@@ -307,28 +338,36 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
           },
         });
       }
-      if (sun.daylight) {
-        const sunPosition = toWorld(sun.azimuthDegrees, sun.altitudeDegrees);
-        source.entities.add({
-          id: 'sun-marker',
-          position: sunPosition,
-          point: {
-            pixelSize: 18,
-            color: C.Color.fromCssColorString('#fde047'),
-            outlineColor: C.Color.WHITE,
-            outlineWidth: 2,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-        });
-        source.entities.add({
-          id: 'sun-ray',
-          polyline: {
-            positions: [anchor, sunPosition],
-            width: 2,
-            material: C.Color.fromCssColorString('#fde047').withAlpha(0.45),
-          },
-        });
-      }
+      const visualAltitude = sun.daylight ? sun.altitudeDegrees : 1.5;
+      const sunPosition = toWorld(sun.azimuthDegrees, visualAltitude);
+      const sunColor = C.Color.fromCssColorString(sun.daylight ? '#fde047' : '#60a5fa');
+      source.entities.add({
+        id: 'sun-marker',
+        position: sunPosition,
+        point: {
+          pixelSize: sun.daylight ? 18 : 14,
+          color: sunColor,
+          outlineColor: C.Color.WHITE,
+          outlineWidth: 2,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: sun.daylight ? undefined : {
+          text: `地平线下 ${Math.abs(sun.altitudeDegrees).toFixed(1)}°`,
+          font: '12px sans-serif',
+          fillColor: sunColor,
+          pixelOffset: new C.Cartesian2(0, -24),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+      source.entities.add({
+        id: 'sun-ray',
+        polyline: {
+          positions: [anchor, sunPosition],
+          width: 2,
+          material: sunColor.withAlpha(sun.daylight ? 0.45 : 0.28),
+          depthFailMaterial: sunColor.withAlpha(0.18),
+        },
+      });
     }, [location, ready, roofHeightMeters, sun, sunDate]);
 
     return (

@@ -26,4 +26,13 @@ describe('solar time and geometry', () => {
     expect(path.length).toBeGreaterThan(20);
     expect(path.every((point) => point.altitudeDegrees > 0)).toBe(true);
   });
+
+  it('continues changing azimuth and altitude before sunrise', () => {
+    const fourAm = getSunSnapshot(newYorkDateTimeToDate('2026-08-27', 240), 40.7128, -74.006);
+    const fiveAm = getSunSnapshot(newYorkDateTimeToDate('2026-08-27', 300), 40.7128, -74.006);
+    expect(fourAm.daylight).toBe(false);
+    expect(fiveAm.daylight).toBe(false);
+    expect(Math.abs(fiveAm.azimuthDegrees - fourAm.azimuthDegrees)).toBeGreaterThan(5);
+    expect(fiveAm.altitudeDegrees).toBeGreaterThan(fourAm.altitudeDegrees);
+  });
 });

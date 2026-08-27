@@ -4,6 +4,13 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-27
+
+### Fixed
+
+- Panel vertices are sampled against the highest-detail 3D Tiles mesh so layouts follow the visible roof surface
+- The sun marker now continues moving along the horizon before sunrise and after sunset while showing its true below-horizon altitude
+
 ## [0.2.2] - 2026-08-27
 
 ### Fixed
