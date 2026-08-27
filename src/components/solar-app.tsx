@@ -160,9 +160,8 @@ export function SolarApp() {
   const [electricityRate, setElectricityRate] = useState(DEFAULT_ELECTRICITY_RATE_USD_PER_KWH);
   const [shareMessage, setShareMessage] = useState('');
   const [dataWarning, setDataWarning] = useState('');
-  const initialTime = useMemo(() => currentNewYorkDateAndMinute(), []);
-  const [dateIso, setDateIso] = useState(initialTime.dateIso);
-  const [minuteOfDay, setMinuteOfDay] = useState(initialTime.minuteOfDay);
+  const [dateIso, setDateIso] = useState('2026-06-21');
+  const [minuteOfDay, setMinuteOfDay] = useState(12 * 60);
   const [playing, setPlaying] = useState(false);
   const mapRef = useRef<Map3DHandle>(null);
   const didLoadSharedRef = useRef(false);
@@ -180,6 +179,15 @@ export function SolarApp() {
       : null,
     [simulationDate, state.location],
   );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const current = currentNewYorkDateAndMinute();
+      setDateIso(current.dateIso);
+      setMinuteOfDay(current.minuteOfDay);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   useEffect(() => {
     if (!playing) return;

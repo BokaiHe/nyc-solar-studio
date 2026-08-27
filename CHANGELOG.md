@@ -4,6 +4,12 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-27
+
+### Fixed
+
+- Date and time controls now use a deterministic server snapshot before synchronizing to New York local time, preventing hydration mismatches
+
 ## [0.2.1] - 2026-08-27
 
 ### Fixed
