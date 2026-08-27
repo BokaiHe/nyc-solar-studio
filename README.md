@@ -30,7 +30,7 @@
 
 ## 本地启动
 
-```bash
+```powershell
 npm install
 Copy-Item .env.example .env.local
 npm test
@@ -106,3 +106,7 @@ npm run build
 - [EIA 2020 RECS New York end-use table](https://www.eia.gov/consumption/residential/data/2020/state/pdf/ce5.3.st.pdf)
 
 Source: Includes solar data from Google.
+
+## 当前验收边界
+
+无需外部凭证的部分已经由单元测试、ESLint、TypeScript 和生产构建覆盖。真实三维瓦片、Places 搜索、Solar Building Insights 响应以及五栋建筑贴合度，需要配置 Google Cloud Key 后进行浏览器联调。

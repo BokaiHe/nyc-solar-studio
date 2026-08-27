@@ -81,8 +81,12 @@ export function encodeSharedDesign(design: SharedDesign): string {
 }
 
 export function selectedIndicesFromSharedDesign(design: SharedDesign): Set<number> {
-  const selected = new Set(Array.from({ length: design.baseCount }, (_, index) => index));
+  const selected = new Set(
+    Array.from({ length: Math.min(design.baseCount, design.panelCount) }, (_, index) => index),
+  );
   for (const index of design.removed) selected.delete(index);
-  for (const index of design.added) selected.add(index);
+  for (const index of design.added) {
+    if (index < design.panelCount) selected.add(index);
+  }
   return selected;
 }
