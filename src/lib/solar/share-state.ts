@@ -32,7 +32,10 @@ export function parseSharedDesign(search: string): SharedDesign | null {
     !Number.isFinite(latitude) ||
     !Number.isFinite(longitude) ||
     !Number.isInteger(baseCount) ||
+    baseCount < 0 ||
     !Number.isInteger(panelCount) ||
+    panelCount < 0 ||
+    baseCount > panelCount ||
     !date?.match(/^\d{8}$/) ||
     cameraParts.length !== 3 ||
     cameraParts.some((value) => !Number.isFinite(value))

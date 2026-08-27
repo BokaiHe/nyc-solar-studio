@@ -6,7 +6,7 @@
 
 - Google Maps JavaScript API 3D 城市浏览
 - Google Places 纽约地址搜索
-- 三个住宅演示入口
+- 五个行政区住宅演示入口
 - Solar API Building Insights 服务端代理
 - `panelToPolygon()` 屋顶平面几何转换
 - `RELATIVE_TO_MESH` 与 `ABSOLUTE` 两种定位模式

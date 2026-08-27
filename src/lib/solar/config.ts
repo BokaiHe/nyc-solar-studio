@@ -35,6 +35,20 @@ export const DEMO_BUILDINGS = [
     latitude: 40.6214,
     longitude: -73.9566,
   },
+  {
+    id: 'bronx',
+    borough: 'Bronx',
+    label: '布朗克斯住宅',
+    latitude: 40.8546,
+    longitude: -73.8661,
+  },
+  {
+    id: 'manhattan',
+    borough: 'Manhattan',
+    label: '曼哈顿住宅',
+    latitude: 40.7837,
+    longitude: -73.9792,
+  },
 ] as const;
 
 export type DemoBuilding = (typeof DEMO_BUILDINGS)[number];
