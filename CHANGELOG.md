@@ -4,6 +4,19 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-27
+
+### Fixed
+
+- Roof clamping now samples one center height per panel and preserves the panel plane, preventing roof-edge vertices from stretching down facades
+- Panel geometry is no longer re-sampled when time, sunlight color, or selection changes
+- Dragging commits one position update on release and safely ends when the pointer leaves the canvas
+
+### Performance
+
+- Reduced detailed mesh samples by 75 percent
+- Enabled Cesium request-render mode and disabled per-panel soft shadow work
+
 ## [0.2.3] - 2026-08-27
 
 ### Fixed

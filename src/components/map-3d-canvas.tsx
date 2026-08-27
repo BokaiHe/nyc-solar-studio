@@ -48,6 +48,19 @@ type Map3DCanvasProps = {
 
 const DEFAULT_CAMERA: CameraState = { heading: 25, tilt: 55, range: 240 };
 
+function panelColor(
+  C: typeof import('cesium'),
+  selected: boolean,
+  factor: number,
+  daylight: boolean,
+) {
+  if (!selected) return C.Color.WHITE.withAlpha(0.12);
+  if (!daylight) return C.Color.fromCssColorString('#334155').withAlpha(0.9);
+  if (factor > 0.75) return C.Color.fromCssColorString('#facc15').withAlpha(0.92);
+  if (factor > 0.35) return C.Color.fromCssColorString('#f97316').withAlpha(0.9);
+  return C.Color.fromCssColorString('#64748b').withAlpha(0.88);
+}
+
 function panelIndexFromEntity(entity: Entity | undefined): number | null {
   if (!entity?.id.startsWith('solar-panel-')) return null;
   const index = Number(entity.id.slice('solar-panel-'.length));
@@ -80,6 +93,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
     const sunSourceRef = useRef<CustomDataSource | null>(null);
     const handlerRef = useRef<ScreenSpaceEventHandler | null>(null);
     const callbacksRef = useRef({ onTogglePanel, onMovePanel, onSelectLocation, onMapError });
+    const panelVisualsRef = useRef({ selectedIndices, panelLightFactors, daylight: sun?.daylight ?? false });
     const [ready, setReady] = useState(false);
     const [dragging, setDragging] = useState(false);
 
@@ -102,6 +116,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
 
     useEffect(() => {
       let disposed = false;
+      let releaseDragListeners: (() => void) | null = null;
       const host = hostRef.current;
       if (!host) return;
       (window as typeof window & { CESIUM_BASE_URL?: string }).CESIUM_BASE_URL = '/cesium/';
@@ -125,11 +140,12 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
             globe: false,
             scene3DOnly: true,
             shadows: true,
-            requestRenderMode: false,
+            requestRenderMode: true,
+            maximumRenderTimeChange: Number.POSITIVE_INFINITY,
           });
           viewer.scene.backgroundColor = C.Color.fromCssColorString('#020617');
           viewer.scene.shadowMap.enabled = true;
-          viewer.scene.shadowMap.softShadows = true;
+          viewer.scene.shadowMap.softShadows = false;
           viewer.scene.highDynamicRange = true;
 
           const panelSource = new C.CustomDataSource('solar-panels');
@@ -150,6 +166,30 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
           handlerRef.current = handler;
           let dragIndex: number | null = null;
           let dragMoved = false;
+          let pendingDragCenter: LatLng | null = null;
+          let suppressNextClick = false;
+
+          const finishDrag = () => {
+            if (dragIndex === null) return;
+            if (dragMoved && pendingDragCenter) {
+              callbacksRef.current.onMovePanel(dragIndex, pendingDragCenter);
+              suppressNextClick = true;
+            } else {
+              callbacksRef.current.onTogglePanel(dragIndex);
+            }
+            panelSource.entities.removeById('drag-preview');
+            dragIndex = null;
+            dragMoved = false;
+            pendingDragCenter = null;
+            setDragging(false);
+            viewer.scene.screenSpaceCameraController.enableInputs = true;
+          };
+          window.addEventListener('pointerup', finishDrag);
+          window.addEventListener('blur', finishDrag);
+          releaseDragListeners = () => {
+            window.removeEventListener('pointerup', finishDrag);
+            window.removeEventListener('blur', finishDrag);
+          };
 
           handler.setInputAction((movement: { position: import('cesium').Cartesian2 }) => {
             const picked = viewer.scene.pick(movement.position) as { id?: Entity } | undefined;
@@ -157,6 +197,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
             if (index === null) return;
             dragIndex = index;
             dragMoved = false;
+            pendingDragCenter = null;
             setDragging(true);
             viewer.scene.screenSpaceCameraController.enableInputs = false;
           }, C.ScreenSpaceEventType.LEFT_DOWN);
@@ -171,21 +212,34 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
             if (!C.defined(position)) return;
             const cartographic = C.Cartographic.fromCartesian(position);
             dragMoved = true;
-            callbacksRef.current.onMovePanel(dragIndex, {
+            pendingDragCenter = {
               latitude: C.Math.toDegrees(cartographic.latitude),
               longitude: C.Math.toDegrees(cartographic.longitude),
-            });
+            };
+            const preview = panelSource.entities.getById('drag-preview');
+            if (preview) preview.position = new C.ConstantPositionProperty(position);
+            else {
+              panelSource.entities.add({
+                id: 'drag-preview',
+                position,
+                point: {
+                  pixelSize: 12,
+                  color: C.Color.fromCssColorString('#38bdf8'),
+                  outlineColor: C.Color.WHITE,
+                  outlineWidth: 2,
+                  disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                },
+              });
+            }
           }, C.ScreenSpaceEventType.MOUSE_MOVE);
 
-          handler.setInputAction(() => {
-            if (dragIndex !== null && !dragMoved) callbacksRef.current.onTogglePanel(dragIndex);
-            dragIndex = null;
-            dragMoved = false;
-            setDragging(false);
-            viewer.scene.screenSpaceCameraController.enableInputs = true;
-          }, C.ScreenSpaceEventType.LEFT_UP);
+          handler.setInputAction(finishDrag, C.ScreenSpaceEventType.LEFT_UP);
 
           handler.setInputAction((movement: { position: import('cesium').Cartesian2 }) => {
+            if (suppressNextClick) {
+              suppressNextClick = false;
+              return;
+            }
             const picked = viewer.scene.pick(movement.position) as { id?: Entity } | undefined;
             if (panelIndexFromEntity(picked?.id) !== null) return;
             if (!viewer.scene.pickPositionSupported) return;
@@ -210,6 +264,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
 
       return () => {
         disposed = true;
+        releaseDragListeners?.();
         handlerRef.current?.destroy();
         handlerRef.current = null;
         if (viewerRef.current && !viewerRef.current.isDestroyed()) viewerRef.current.destroy();
@@ -238,6 +293,33 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
     }, [initialCamera, location, ready, roofHeightMeters]);
 
     useEffect(() => {
+      panelVisualsRef.current = {
+        selectedIndices,
+        panelLightFactors,
+        daylight: sun?.daylight ?? false,
+      };
+      const source = panelSourceRef.current;
+      const C = cesiumRef.current;
+      if (!source || !C || !ready) return;
+      for (const panel of panels) {
+        const entity = source.entities.getById(`solar-panel-${panel.index}`);
+        if (!entity?.polygon) continue;
+        const selected = selectedIndices.has(panel.index);
+        const color = panelColor(
+          C,
+          selected,
+          panelLightFactors.get(panel.index) ?? 0,
+          sun?.daylight ?? false,
+        );
+        entity.polygon.material = new C.ColorMaterialProperty(color);
+        entity.polygon.outlineColor = new C.ConstantProperty(
+          selected ? C.Color.fromCssColorString('#e0f2fe') : C.Color.WHITE.withAlpha(0.55),
+        );
+      }
+      viewerRef.current?.scene.requestRender();
+    }, [panelLightFactors, panels, ready, selectedIndices, sun?.daylight]);
+
+    useEffect(() => {
       let cancelled = false;
       const viewer = viewerRef.current;
       const source = panelSourceRef.current;
@@ -247,9 +329,14 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
       if (panels.length === 0) return;
 
       const renderPanels = async () => {
-        const cartographics = panels.flatMap((panel) =>
-          panel.vertices.map((vertex) =>
-            C.Cartographic.fromDegrees(vertex.longitude, vertex.latitude, vertex.altitude),
+        const originalCenterAltitudes = panels.map((panel) =>
+          panel.vertices.reduce((total, vertex) => total + vertex.altitude, 0) / panel.vertices.length,
+        );
+        const cartographics = panels.map((panel, panelOrder) =>
+          C.Cartographic.fromDegrees(
+            panel.center.longitude,
+            panel.center.latitude,
+            originalCenterAltitudes[panelOrder],
           ),
         );
         let sampled: Array<import('cesium').Cartographic | undefined> = cartographics;
@@ -263,28 +350,27 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
         if (cancelled) return;
 
         for (const [panelOrder, panel] of panels.entries()) {
-          const selected = selectedIndices.has(panel.index);
-          const factor = panelLightFactors.get(panel.index) ?? 0;
-          const color = !selected
-            ? C.Color.WHITE.withAlpha(0.12)
-            : !sun?.daylight
-              ? C.Color.fromCssColorString('#334155').withAlpha(0.9)
-              : factor > 0.75
-                ? C.Color.fromCssColorString('#facc15').withAlpha(0.92)
-                : factor > 0.35
-                  ? C.Color.fromCssColorString('#f97316').withAlpha(0.9)
-                  : C.Color.fromCssColorString('#64748b').withAlpha(0.88);
+          const visuals = panelVisualsRef.current;
+          const selected = visuals.selectedIndices.has(panel.index);
+          const color = panelColor(
+            C,
+            selected,
+            visuals.panelLightFactors.get(panel.index) ?? 0,
+            visuals.daylight,
+          );
+          const centerSurface = sampled[panelOrder];
+          const altitudeOffset = centerSurface
+            ? centerSurface.height - originalCenterAltitudes[panelOrder]
+            : 0;
           source.entities.add({
             id: `solar-panel-${panel.index}`,
             polygon: {
               hierarchy: new C.PolygonHierarchy(
-                panel.vertices.map((vertex, vertexIndex) => {
-                  const surface = sampled[panelOrder * 4 + vertexIndex];
-                  const altitude = surface?.height ?? vertex.altitude;
+                panel.vertices.map((vertex) => {
                   return C.Cartesian3.fromDegrees(
                     vertex.longitude,
                     vertex.latitude,
-                    altitude + 0.16,
+                    vertex.altitude + altitudeOffset + 0.16,
                   );
                 }),
               ),
@@ -292,16 +378,17 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
               material: color,
               outline: true,
               outlineColor: selected ? C.Color.fromCssColorString('#e0f2fe') : C.Color.WHITE.withAlpha(0.55),
-              shadows: C.ShadowMode.ENABLED,
+              shadows: C.ShadowMode.DISABLED,
             },
           });
         }
+        viewer.scene.requestRender();
       };
       void renderPanels();
       return () => {
         cancelled = true;
       };
-    }, [panelLightFactors, panels, ready, selectedIndices, sun?.daylight]);
+    }, [panels, ready]);
 
     useEffect(() => {
       const viewer = viewerRef.current;

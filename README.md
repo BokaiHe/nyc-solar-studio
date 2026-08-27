@@ -118,7 +118,7 @@ npm run build
 - `main` 始终保持可构建。
 - 功能分支使用 `feat/<name>`，修复分支使用 `fix/<name>`。
 - 提交信息采用 Conventional Commits，例如 `feat: add solar building lookup`。
-- 版本采用 SemVer。当前三维交互版本为 `v0.2.3`。
+- 版本采用 SemVer。当前三维交互版本为 `v0.2.4`。
 - 架构变化记录在 [`docs/DECISIONS.md`](docs/DECISIONS.md)。
 
 ## 官方来源
