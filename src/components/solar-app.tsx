@@ -265,16 +265,17 @@ export function SolarApp() {
 
   useEffect(() => {
     if (didLoadSharedRef.current) return;
-    didLoadSharedRef.current = true;
     if (!sharedDesign) return;
-    const frame = requestAnimationFrame(() => {
+    const timeout = window.setTimeout(() => {
+      if (didLoadSharedRef.current) return;
+      didLoadSharedRef.current = true;
       void analyzeLocation({
         label: '分享的纽约屋顶方案',
         latitude: sharedDesign.latitude,
         longitude: sharedDesign.longitude,
       }, sharedDesign);
-    });
-    return () => cancelAnimationFrame(frame);
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [analyzeLocation, sharedDesign]);
 
   const summary = useMemo(

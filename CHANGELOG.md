@@ -4,6 +4,12 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-27
+
+### Fixed
+
+- Shared building links now load correctly under React development-mode strict checks
+
 ## [0.2.0] - 2026-08-27
 
 ### Added
