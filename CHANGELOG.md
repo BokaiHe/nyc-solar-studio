@@ -4,6 +4,14 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-27
+
+### Added
+
+- Reproducible Node version metadata
+- Calculation and share-state unit tests
+- Shared-layout candidate range validation
+
 ## [0.1.0] - 2026-08-27
 
 ### Added
@@ -15,6 +23,5 @@ All notable changes will be documented in this file.
 - Interactive candidate panel selection
 - Solar summary panel and URL sharing
 - Five-borough demo entry points
-- Reproducible Node and dependency versions
 - GitHub Actions verification workflow
-- Geometry, calculation, and share-state unit tests
+- Roof geometry unit tests
