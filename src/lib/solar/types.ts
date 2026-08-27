@@ -54,7 +54,25 @@ export type BuildingInsights = {
 export type RenderPanel = {
   index: number;
   vertices: LatLngAltitude[];
+  center: LatLng;
+  segmentIndex: number;
+  roofPitchDegrees: number;
+  roofAzimuthDegrees: number;
+  rotationOffsetDegrees: number;
   yearlyEnergyDcKwh: number;
+};
+
+export type PanelOverride = {
+  center: LatLng;
+  rotationOffsetDegrees: number;
+};
+
+export type SunSnapshot = {
+  azimuthDegrees: number;
+  altitudeDegrees: number;
+  sunrise: Date;
+  sunset: Date;
+  daylight: boolean;
 };
 
 export type CameraState = {

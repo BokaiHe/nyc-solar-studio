@@ -77,6 +77,19 @@ describe('panelToPolygon', () => {
       dimensions,
       'ABSOLUTE',
     );
-    expectDimensions(result.vertices, dimensions.widthM, dimensions.heightM);
+    expectDimensions(result.vertices, dimensions.heightM, dimensions.widthM);
+  });
+
+  it('preserves dimensions after a free rotation in the roof plane', () => {
+    const result = panelToPolygon(
+      panel('PORTRAIT'),
+      segment(32, 145),
+      dimensions,
+      'ABSOLUTE',
+      0,
+      0.08,
+      37,
+    );
+    expectDimensions(result.vertices, dimensions.heightM, dimensions.widthM);
   });
 });

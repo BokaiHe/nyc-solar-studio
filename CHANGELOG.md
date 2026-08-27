@@ -4,6 +4,22 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-27
+
+### Added
+
+- Cesium viewer with Google Photorealistic 3D Tiles
+- Direct building selection from the 3D city
+- Roof-panel dragging and 5-degree rotation controls
+- Date and time simulation in New York local time
+- Animated sun position, daily sun path, light direction and panel incidence preview
+- Sun-position and rotated roof-plane geometry tests
+
+### Changed
+
+- Replaced the previous Maps JavaScript 3D renderer with Cesium so the scene can use a simulation clock and editable geometry
+- Isolated generated Cesium runtime assets from Git and ESLint
+
 ## [0.1.1] - 2026-08-27
 
 ### Added
