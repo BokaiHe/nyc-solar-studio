@@ -29,6 +29,7 @@ import type {
 } from '@/lib/solar/types';
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'no-data' | 'error';
+type WorkspaceMode = 'explore' | 'focus' | 'design' | 'sun' | 'results';
 
 type State = {
   status: LoadStatus;
@@ -52,6 +53,7 @@ type Action =
   | { type: 'rotate'; index: number; degrees: number }
   | { type: 'select-count'; count: number }
   | { type: 'clear' }
+  | { type: 'reset' }
   | { type: 'reset-custom' };
 
 const initialState: State = {
@@ -117,6 +119,8 @@ function reducer(state: State, action: Action): State {
       return { ...state, selected: new Set(Array.from({ length: action.count }, (_, index) => index)), overrides: new Map(), activePanel: null, baseCount: action.count };
     case 'clear':
       return { ...state, selected: new Set(), overrides: new Map(), activePanel: null, baseCount: 0 };
+    case 'reset':
+      return initialState;
     case 'reset-custom':
       return { ...state, overrides: new Map(), activePanel: null };
   }
@@ -163,6 +167,9 @@ export function SolarApp() {
   const [dateIso, setDateIso] = useState('2026-06-21');
   const [minuteOfDay, setMinuteOfDay] = useState(12 * 60);
   const [playing, setPlaying] = useState(false);
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('explore');
+  const [editMode, setEditMode] = useState(false);
+  const [examplesOpen, setExamplesOpen] = useState(false);
   const mapRef = useRef<Map3DHandle>(null);
   const didLoadSharedRef = useRef(false);
   const searchParams = useSearchParams();
@@ -266,6 +273,9 @@ export function SolarApp() {
         }
       }
       dispatch({ type: 'loaded', insights, selected, baseCount });
+      setWorkspaceMode(shared ? 'design' : 'focus');
+      setEditMode(false);
+      setExamplesOpen(false);
     } catch {
       dispatch({ type: 'error', message: 'Solar 服务暂时不可用，请稍后重试。' });
     }
@@ -340,6 +350,36 @@ export function SolarApp() {
 
   const initialCamera: CameraState | undefined = sharedDesign?.camera;
 
+  const visiblePanels = useMemo(() => {
+    if (workspaceMode === 'explore' || workspaceMode === 'focus') return [];
+    if (workspaceMode !== 'design' || !editMode) {
+      return panels.filter((panel) => state.selected.has(panel.index));
+    }
+    const candidateLimit = Math.min(
+      panels.length,
+      Math.max(48, state.selected.size + 28),
+    );
+    return panels.filter((panel) => state.selected.has(panel.index) || panel.index < candidateLimit);
+  }, [editMode, panels, state.selected, workspaceMode]);
+
+  const enterDesign = useCallback(() => {
+    if (state.selected.size === 0 && presets.length > 0) {
+      dispatch({ type: 'select-count', count: presets[0].count });
+    }
+    setWorkspaceMode('design');
+    setEditMode(false);
+  }, [presets, state.selected.size]);
+
+  const resetWorkspace = useCallback(() => {
+    dispatch({ type: 'reset' });
+    setWorkspaceMode('explore');
+    setEditMode(false);
+    setPlaying(false);
+    setExamplesOpen(false);
+    setDataWarning('');
+    setShareMessage('');
+  }, []);
+
   if (!apiKey) {
     return (
       <main className="grid min-h-screen place-items-center bg-slate-950 p-6 text-white">
@@ -359,11 +399,14 @@ export function SolarApp() {
         apiKey={apiKey}
         location={state.location}
         roofHeightMeters={roofHeightMeters}
-        panels={panels}
+        panels={visiblePanels}
         selectedIndices={state.selected}
         panelLightFactors={panelLightFactors}
         sunDate={simulationDate}
         sun={sun}
+        showSun={workspaceMode === 'sun'}
+        allowPanelEditing={workspaceMode === 'design' && editMode}
+        allowLocationSelection={workspaceMode === 'explore' || workspaceMode === 'focus'}
         initialCamera={initialCamera}
         onTogglePanel={(index) => dispatch({ type: 'toggle', index })}
         onMovePanel={(index, center) => dispatch({ type: 'move', index, center })}
@@ -376,132 +419,188 @@ export function SolarApp() {
         })}
       />
 
-      <header className="absolute left-4 right-4 top-4 z-20 flex flex-col gap-3 lg:left-6 lg:right-auto lg:w-[430px]">
-        <div className="rounded-2xl border border-white/10 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-xl">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-sky-300">NYC Solar Roof</p>
-              <h1 className="mt-1 text-xl font-semibold">三维铺板与太阳轨迹模拟</h1>
+      <header className="absolute left-4 right-4 top-4 z-30 flex items-start gap-2 lg:left-5 lg:right-auto">
+        <button type="button" onClick={resetWorkspace} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-white/10 bg-slate-950/90 text-sm font-black tracking-tight shadow-xl backdrop-blur-xl" aria-label="返回探索">
+          SR
+        </button>
+        <div className="w-[min(390px,calc(100vw-5.5rem))] rounded-2xl border border-white/10 bg-slate-950/90 p-1.5 shadow-xl backdrop-blur-xl">
+          <PlaceSearch apiKey={apiKey} disabled={state.status === 'loading'} onSelect={(place) => void analyzeLocation(place)} />
+        </div>
+        <div className="relative hidden sm:block">
+          <button type="button" onClick={() => setExamplesOpen((open) => !open)} className="h-12 rounded-2xl border border-white/10 bg-slate-950/90 px-4 text-sm shadow-xl backdrop-blur-xl hover:bg-slate-900">
+            示例⌄
+          </button>
+          {examplesOpen && (
+            <div className="absolute left-0 top-14 w-52 rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-xl">
+              {DEMO_BUILDINGS.map((building) => (
+                <button key={building.id} type="button" onClick={() => void analyzeLocation({ label: building.label, latitude: building.latitude, longitude: building.longitude })} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/10">
+                  {building.borough}
+                </button>
+              ))}
             </div>
-            <span className="rounded-full bg-emerald-400/15 px-3 py-1 text-xs text-emerald-300">v0.2</span>
-          </div>
-          <div className="mt-4">
-            <PlaceSearch apiKey={apiKey} disabled={state.status === 'loading'} onSelect={(place) => void analyzeLocation(place)} />
-          </div>
-          <p className="mt-2 text-xs leading-5 text-slate-400">也可以直接旋转地球并点击任意建筑屋顶。</p>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {DEMO_BUILDINGS.map((building) => (
-              <button
-                key={building.id}
-                type="button"
-                disabled={state.status === 'loading'}
-                onClick={() => void analyzeLocation({
-                  label: building.label,
-                  latitude: building.latitude,
-                  longitude: building.longitude,
-                })}
-                className="rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
-              >
-                {building.borough}
-              </button>
-            ))}
-          </div>
+          )}
         </div>
       </header>
 
-      <aside className="absolute bottom-36 right-4 z-20 max-h-[calc(100vh-10rem)] w-[min(400px,calc(100vw-2rem))] overflow-y-auto rounded-3xl border border-white/10 bg-slate-950/92 p-5 shadow-2xl backdrop-blur-xl lg:right-6 lg:top-6 lg:bottom-36">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs text-slate-400">当前建筑</p>
-            <h2 className="mt-1 line-clamp-2 font-semibold">{state.locationLabel || '等待选择'}</h2>
-          </div>
-          {state.status === 'loading' && <span className="animate-pulse text-xs text-sky-300">读取中</span>}
+      {state.status === 'idle' && (
+        <section className="pointer-events-none absolute left-5 top-24 z-20 max-w-sm rounded-2xl border border-white/10 bg-slate-950/75 p-4 shadow-xl backdrop-blur-lg">
+          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-300">NYC Solar Roof</p>
+          <h1 className="mt-2 text-lg font-semibold">在真实三维城市里设计屋顶光伏</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-300">搜索地址，或旋转地图后点击屋顶开始。</p>
+        </section>
+      )}
+
+      {state.status === 'loading' && (
+        <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/90 px-4 py-2 text-xs text-sky-200 shadow-xl backdrop-blur-xl">
+          正在读取屋顶数据…
         </div>
-        <p className="mt-3 rounded-xl bg-white/5 p-3 text-sm leading-6 text-slate-300">{state.message}</p>
-        {dataWarning && <p className="mt-2 text-xs leading-5 text-amber-300">{dataWarning}</p>}
+      )}
 
-        {state.status === 'ready' && state.insights && summary && (
-          <>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {presets.map((preset) => (
-                <button key={preset.label} type="button" onClick={() => dispatch({ type: 'select-count', count: preset.count })} className="rounded-full bg-sky-500/15 px-3 py-2 text-xs font-medium text-sky-200 hover:bg-sky-500/25">
-                  {preset.label} · {preset.count}块
+      {(state.status === 'no-data' || state.status === 'error') && (
+        <section className="absolute left-1/2 top-1/2 z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 bg-slate-950/94 p-6 text-center shadow-2xl backdrop-blur-xl">
+          <p className="text-sm font-semibold text-amber-300">当前建筑无法分析</p>
+          <p className="mt-2 text-sm leading-6 text-slate-300">{state.message}</p>
+          <button type="button" onClick={resetWorkspace} className="mt-5 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-slate-950">重新选择</button>
+        </section>
+      )}
+
+      {state.status === 'ready' && state.insights && summary && workspaceMode === 'focus' && (
+        <section className="absolute bottom-8 right-5 z-20 w-[min(360px,calc(100vw-2.5rem))] rounded-3xl border border-white/10 bg-slate-950/92 p-5 shadow-2xl backdrop-blur-xl lg:bottom-auto lg:top-5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-300">已锁定建筑</p>
+          <h2 className="mt-2 line-clamp-2 text-lg font-semibold">{state.locationLabel}</h2>
+          <p className="mt-3 text-xs leading-5 text-slate-400">{qualityLabel(state.insights.imageryQuality)}影像 · {formatDate(state.insights)} · {panels.length} 个候选板位</p>
+          {dataWarning && <p className="mt-2 text-xs text-amber-300">{dataWarning}</p>}
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button type="button" onClick={enterDesign} className="rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold hover:bg-sky-400">开始设计</button>
+            <button type="button" onClick={() => setWorkspaceMode('sun')} className="rounded-xl bg-white/10 px-4 py-3 text-sm font-medium hover:bg-white/15">查看日照</button>
+          </div>
+        </section>
+      )}
+
+      {state.status === 'ready' && workspaceMode !== 'focus' && workspaceMode !== 'explore' && (
+        <nav className="absolute right-5 top-5 z-30 flex rounded-2xl border border-white/10 bg-slate-950/90 p-1 shadow-xl backdrop-blur-xl">
+          {([
+            ['design', '设计'],
+            ['sun', '日照'],
+            ['results', '结果'],
+          ] as const).map(([mode, label]) => (
+            <button key={mode} type="button" onClick={() => { setWorkspaceMode(mode); setEditMode(false); setPlaying(false); }} className={`rounded-xl px-4 py-2 text-sm transition ${workspaceMode === mode ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-white/10'}`}>
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {state.status === 'ready' && state.insights && summary && workspaceMode === 'design' && (
+        <aside className="absolute right-5 top-20 z-20 max-h-[calc(100vh-6.25rem)] w-[min(360px,calc(100vw-2.5rem))] overflow-y-auto rounded-3xl border border-white/10 bg-slate-950/92 p-5 shadow-2xl backdrop-blur-xl">
+          <PanelHeader eyebrow="光伏设计" title={`${summary.panelCount} 块 · ${summary.capacityKw.toFixed(1)} kW`} onClose={() => setWorkspaceMode('focus')} />
+          <p className="mt-2 text-xs leading-5 text-slate-400">先选推荐规模，需要微调时再进入编辑。</p>
+
+          <div className="mt-5 space-y-2">
+            {presets.map((preset) => {
+              const active = state.selected.size === preset.count && state.overrides.size === 0;
+              return (
+                <button key={preset.label} type="button" onClick={() => { dispatch({ type: 'select-count', count: preset.count }); setEditMode(false); }} className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${active ? 'border-sky-400 bg-sky-500/15' : 'border-white/10 bg-white/[0.04] hover:bg-white/[0.08]'}`}>
+                  <span className="text-sm font-medium">{preset.label}</span>
+                  <span className="text-xs text-slate-400">{preset.count} 块</span>
                 </button>
-              ))}
-              <button type="button" onClick={() => dispatch({ type: 'clear' })} className="rounded-full bg-white/5 px-3 py-2 text-xs text-slate-300 hover:bg-white/10">清空</button>
-            </div>
+              );
+            })}
+          </div>
 
-            {state.activePanel !== null && (
-              <div className="mt-4 rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3">
-                <p className="text-xs font-semibold text-sky-200">正在编辑第 {state.activePanel + 1} 块板</p>
-                <p className="mt-1 text-[11px] leading-5 text-slate-400">在地图上按住并拖动；使用按钮在屋顶平面内旋转。</p>
-                <div className="mt-2 grid grid-cols-3 gap-2">
+          <button type="button" onClick={() => setEditMode((editing) => !editing)} className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold ${editMode ? 'bg-white text-slate-950' : 'bg-sky-500 text-white hover:bg-sky-400'}`}>
+            {editMode ? '完成编辑' : '微调板位'}
+          </button>
+
+          {editMode && (
+            <div className="mt-3 rounded-2xl border border-sky-400/20 bg-sky-500/10 p-3">
+              <p className="text-xs leading-5 text-sky-100">浅色轮廓为候选位置。点击可增删，按住已选板可拖动。</p>
+              {state.activePanel !== null && (
+                <div className="mt-3 grid grid-cols-3 gap-2">
                   <button type="button" onClick={() => dispatch({ type: 'rotate', index: state.activePanel!, degrees: -15 })} className="rounded-lg bg-white/10 px-2 py-2 text-xs">↶ 15°</button>
-                  <button type="button" onClick={() => dispatch({ type: 'rotate', index: state.activePanel!, degrees: 90 })} className="rounded-lg bg-white/10 px-2 py-2 text-xs">横/竖</button>
+                  <button type="button" onClick={() => dispatch({ type: 'rotate', index: state.activePanel!, degrees: 90 })} className="rounded-lg bg-white/10 px-2 py-2 text-xs">横 / 竖</button>
                   <button type="button" onClick={() => dispatch({ type: 'rotate', index: state.activePanel!, degrees: 15 })} className="rounded-lg bg-white/10 px-2 py-2 text-xs">15° ↷</button>
                 </div>
-              </div>
-            )}
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <Metric label="系统规模" value={`${summary.panelCount} 块`} detail={`${summary.capacityKw.toFixed(1)} kW`} />
-              <Metric label="Google 年发电基准" value={`${Math.round(summary.annualAcKwh).toLocaleString()} kWh`} detail="自定义移动后仅作基准" />
-              <Metric label="当前相对直射" value={`${Math.round(selectedLightAverage * 100)}%`} detail={sun?.daylight ? '按板面与太阳夹角' : '太阳位于地平线下'} />
-              <Metric label="年减碳基准" value={`${Math.round(summary.annualCarbonKg).toLocaleString()} kg`} detail="基于当地电网" />
+              )}
             </div>
+          )}
 
-            {state.overrides.size > 0 && (
-              <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-                <span>{state.overrides.size} 块板已自定义移动</span>
-                <button type="button" onClick={() => dispatch({ type: 'reset-custom' })} className="underline">恢复推荐位置</button>
-              </div>
-            )}
-
-            <label className="mt-4 block text-xs text-slate-400" htmlFor="rate">电价假设（USD/kWh）</label>
-            <input id="rate" type="number" min="0" step="0.001" value={electricityRate} onChange={(event) => setElectricityRate(Number(event.target.value) || 0)} className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:border-sky-400" />
-
-            <button type="button" onClick={() => void copyShareLink()} className="mt-4 w-full rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold hover:bg-sky-400">复制分享链接</button>
-            {shareMessage && <p className="mt-2 text-center text-xs text-emerald-300">{shareMessage}</p>}
-
-            <div className="mt-4 border-t border-white/10 pt-3 text-[11px] leading-5 text-slate-400">
-              <p>{qualityLabel(state.insights.imageryQuality)} · 影像日期 {formatDate(state.insights)}</p>
-              <p>Google 年发电量使用 0.85 DC→AC 折减；当前直射比例为几何模拟。</p>
+          {state.overrides.size > 0 && (
+            <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+              <span>{state.overrides.size} 块已移动</span>
+              <button type="button" onClick={() => dispatch({ type: 'reset-custom' })} className="underline">恢复推荐位置</button>
             </div>
-          </>
-        )}
+          )}
 
-        {(state.status === 'no-data' || state.status === 'error') && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {DEMO_BUILDINGS.map((building) => (
-              <button key={building.id} type="button" onClick={() => void analyzeLocation({ label: building.label, latitude: building.latitude, longitude: building.longitude })} className="rounded-lg bg-white/5 px-3 py-2 text-xs hover:bg-white/10">
-                {building.borough}
+          <button type="button" onClick={() => { setWorkspaceMode('sun'); setEditMode(false); }} className="mt-5 w-full rounded-xl bg-amber-400 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300">下一步：日照模拟</button>
+          <p className="mt-4 text-[11px] leading-5 text-slate-500">拖动布局属于概念设计；Google 年发电基准仍对应原始推荐板位。</p>
+        </aside>
+      )}
+
+      {state.status === 'ready' && summary && workspaceMode === 'sun' && (
+        <aside className="absolute right-5 top-20 z-20 w-[min(300px,calc(100vw-2.5rem))] rounded-3xl border border-white/10 bg-slate-950/88 p-4 shadow-2xl backdrop-blur-xl">
+          <PanelHeader eyebrow="太阳位置" title={formatNewYorkTime(simulationDate)} onClose={() => setWorkspaceMode('focus')} />
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <SunMetric label="方位角" value={sun ? `${sun.azimuthDegrees.toFixed(1)}°` : '—'} />
+            <SunMetric label="高度角" value={sun ? `${sun.altitudeDegrees.toFixed(1)}°` : '—'} />
+          </div>
+          <p className="mt-3 text-xs leading-5 text-slate-400">当前板面相对直射 {Math.round(selectedLightAverage * 100)}%。拖动下方时间轴观察一天变化。</p>
+        </aside>
+      )}
+
+      {state.status === 'ready' && state.insights && summary && workspaceMode === 'results' && (
+        <aside className="absolute right-5 top-20 z-20 max-h-[calc(100vh-6.25rem)] w-[min(370px,calc(100vw-2.5rem))] overflow-y-auto rounded-3xl border border-white/10 bg-slate-950/92 p-5 shadow-2xl backdrop-blur-xl">
+          <PanelHeader eyebrow="方案结果" title={`${summary.capacityKw.toFixed(1)} kW 屋顶系统`} onClose={() => setWorkspaceMode('focus')} />
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <Metric label="光伏板" value={`${summary.panelCount} 块`} detail="400 W / 块" />
+            <Metric label="年发电基准" value={`${Math.round(summary.annualAcKwh).toLocaleString()} kWh`} detail="Google 推荐布局" />
+            <Metric label="年减碳基准" value={`${Math.round(summary.annualCarbonKg).toLocaleString()} kg`} detail="基于当地电网" />
+            <Metric label="当前直射" value={`${Math.round(selectedLightAverage * 100)}%`} detail="几何模拟" />
+          </div>
+          <label className="mt-5 block text-xs text-slate-400" htmlFor="rate">电价假设（USD/kWh）</label>
+          <input id="rate" type="number" min="0" step="0.001" value={electricityRate} onChange={(event) => setElectricityRate(Number(event.target.value) || 0)} className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:border-sky-400" />
+          <button type="button" onClick={() => void copyShareLink()} className="mt-4 w-full rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold hover:bg-sky-400">复制方案链接</button>
+          {shareMessage && <p className="mt-2 text-center text-xs text-emerald-300">{shareMessage}</p>}
+          <div className="mt-5 border-t border-white/10 pt-4 text-[11px] leading-5 text-slate-500">
+            <p>{qualityLabel(state.insights.imageryQuality)} · 影像日期 {formatDate(state.insights)}</p>
+            <p>年发电量采用 0.85 DC→AC 折减。</p>
+          </div>
+        </aside>
+      )}
+
+      {workspaceMode === 'sun' && state.status === 'ready' && (
+        <section className="absolute bottom-5 left-5 right-5 z-30 rounded-2xl border border-white/10 bg-slate-950/92 px-4 py-3 shadow-2xl backdrop-blur-xl lg:right-[340px]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2">
+              <input aria-label="模拟日期" type="date" value={dateIso} onChange={(event) => setDateIso(event.target.value)} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm" />
+              <button type="button" onClick={() => setPlaying((value) => !value)} className="grid h-9 w-9 place-items-center rounded-full bg-amber-400 text-sm font-semibold text-slate-950" aria-label={playing ? '暂停' : '播放'}>
+                {playing ? 'Ⅱ' : '▶'}
               </button>
-            ))}
+            </div>
+            <div className="flex flex-1 items-center gap-3">
+              <span className="w-12 font-mono text-sm text-amber-200">{minuteLabel(minuteOfDay)}</span>
+              <input aria-label="一天中的时间" type="range" min="0" max="1439" step="5" value={minuteOfDay} onChange={(event) => { setPlaying(false); setMinuteOfDay(Number(event.target.value)); }} className="solar-time-slider h-2 flex-1 cursor-pointer" />
+            </div>
           </div>
-        )}
-        <p className="mt-5 border-t border-white/10 pt-3 text-[11px] leading-5 text-slate-500">Source: Includes solar data from Google. 三维瓦片 © Google。</p>
-      </aside>
+        </section>
+      )}
 
-      <section className="absolute bottom-4 left-4 right-4 z-30 rounded-2xl border border-white/10 bg-slate-950/94 px-4 py-3 shadow-2xl backdrop-blur-xl lg:left-6 lg:right-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="flex min-w-[230px] items-center gap-2">
-            <input aria-label="模拟日期" type="date" value={dateIso} onChange={(event) => setDateIso(event.target.value)} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm" />
-            <button type="button" onClick={() => setPlaying((value) => !value)} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950">
-              {playing ? '暂停' : '▶ 播放'}
-            </button>
-          </div>
-          <div className="flex flex-1 items-center gap-3">
-            <span className="w-12 text-right font-mono text-sm">{minuteLabel(minuteOfDay)}</span>
-            <input aria-label="一天中的时间" type="range" min="0" max="1439" step="5" value={minuteOfDay} onChange={(event) => { setPlaying(false); setMinuteOfDay(Number(event.target.value)); }} className="h-2 flex-1 cursor-pointer accent-amber-400" />
-          </div>
-          <div className="grid min-w-[300px] grid-cols-3 gap-2 text-center text-xs">
-            <SunMetric label="太阳方位" value={sun ? `${sun.azimuthDegrees.toFixed(1)}°` : '—'} />
-            <SunMetric label="太阳高度" value={sun ? `${sun.altitudeDegrees.toFixed(1)}°` : '—'} />
-            <SunMetric label="纽约时间" value={formatNewYorkTime(simulationDate)} />
-          </div>
-        </div>
-      </section>
+      <p className={`pointer-events-none absolute bottom-2 left-5 z-20 text-[10px] text-white/55 ${workspaceMode === 'sun' ? 'hidden' : ''}`}>
+        Includes solar data from Google · 三维瓦片 © Google
+      </p>
     </main>
+  );
+}
+
+function PanelHeader({ eyebrow, title, onClose }: { eyebrow: string; title: string; onClose: () => void }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-300">{eyebrow}</p>
+        <h2 className="mt-1 text-lg font-semibold">{title}</h2>
+      </div>
+      <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white" aria-label="关闭面板">×</button>
+    </div>
   );
 }
 

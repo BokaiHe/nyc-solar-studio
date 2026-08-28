@@ -4,6 +4,17 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-27
+
+### Changed
+
+- Reorganized the interface into building focus, design, sunlight, and results modes
+- Reduced the persistent map UI to a compact search bar and contextual controls
+- Hidden candidate panels until explicit edit mode and limited the initial candidate preview
+- Moved the date and time controls into sunlight mode
+- Replaced the large solar ray with a compact building-scale sun path
+- Added calm blue design panels and sunlight-based colors only during simulation
+
 ## [0.2.4] - 2026-08-27
 
 ### Fixed

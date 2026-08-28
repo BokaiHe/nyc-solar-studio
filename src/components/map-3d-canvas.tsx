@@ -39,6 +39,9 @@ type Map3DCanvasProps = {
   panelLightFactors: ReadonlyMap<number, number>;
   sunDate: Date;
   sun: SunSnapshot | null;
+  showSun: boolean;
+  allowPanelEditing: boolean;
+  allowLocationSelection: boolean;
   initialCamera?: CameraState;
   onTogglePanel: (index: number) => void;
   onMovePanel: (index: number, center: LatLng) => void;
@@ -53,8 +56,10 @@ function panelColor(
   selected: boolean,
   factor: number,
   daylight: boolean,
+  colorBySun: boolean,
 ) {
   if (!selected) return C.Color.WHITE.withAlpha(0.12);
+  if (!colorBySun) return C.Color.fromCssColorString('#075985').withAlpha(0.94);
   if (!daylight) return C.Color.fromCssColorString('#334155').withAlpha(0.9);
   if (factor > 0.75) return C.Color.fromCssColorString('#facc15').withAlpha(0.92);
   if (factor > 0.35) return C.Color.fromCssColorString('#f97316').withAlpha(0.9);
@@ -78,6 +83,9 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
       panelLightFactors,
       sunDate,
       sun,
+      showSun,
+      allowPanelEditing,
+      allowLocationSelection,
       initialCamera,
       onTogglePanel,
       onMovePanel,
@@ -93,13 +101,18 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
     const sunSourceRef = useRef<CustomDataSource | null>(null);
     const handlerRef = useRef<ScreenSpaceEventHandler | null>(null);
     const callbacksRef = useRef({ onTogglePanel, onMovePanel, onSelectLocation, onMapError });
-    const panelVisualsRef = useRef({ selectedIndices, panelLightFactors, daylight: sun?.daylight ?? false });
+    const interactionRef = useRef({ allowPanelEditing, allowLocationSelection });
+    const panelVisualsRef = useRef({ selectedIndices, panelLightFactors, daylight: sun?.daylight ?? false, colorBySun: showSun });
     const [ready, setReady] = useState(false);
     const [dragging, setDragging] = useState(false);
 
     useEffect(() => {
       callbacksRef.current = { onTogglePanel, onMovePanel, onSelectLocation, onMapError };
     }, [onMapError, onMovePanel, onSelectLocation, onTogglePanel]);
+
+    useEffect(() => {
+      interactionRef.current = { allowPanelEditing, allowLocationSelection };
+    }, [allowLocationSelection, allowPanelEditing]);
 
     useImperativeHandle(ref, () => ({
       getCamera: () => {
@@ -192,6 +205,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
           };
 
           handler.setInputAction((movement: { position: import('cesium').Cartesian2 }) => {
+            if (!interactionRef.current.allowPanelEditing) return;
             const picked = viewer.scene.pick(movement.position) as { id?: Entity } | undefined;
             const index = panelIndexFromEntity(picked?.id);
             if (index === null) return;
@@ -242,6 +256,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
             }
             const picked = viewer.scene.pick(movement.position) as { id?: Entity } | undefined;
             if (panelIndexFromEntity(picked?.id) !== null) return;
+            if (!interactionRef.current.allowLocationSelection) return;
             if (!viewer.scene.pickPositionSupported) return;
             const position = viewer.scene.pickPosition(movement.position);
             if (!C.defined(position)) return;
@@ -297,6 +312,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
         selectedIndices,
         panelLightFactors,
         daylight: sun?.daylight ?? false,
+        colorBySun: showSun,
       };
       const source = panelSourceRef.current;
       const C = cesiumRef.current;
@@ -310,6 +326,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
           selected,
           panelLightFactors.get(panel.index) ?? 0,
           sun?.daylight ?? false,
+          showSun,
         );
         entity.polygon.material = new C.ColorMaterialProperty(color);
         entity.polygon.outlineColor = new C.ConstantProperty(
@@ -317,7 +334,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
         );
       }
       viewerRef.current?.scene.requestRender();
-    }, [panelLightFactors, panels, ready, selectedIndices, sun?.daylight]);
+    }, [panelLightFactors, panels, ready, selectedIndices, showSun, sun?.daylight]);
 
     useEffect(() => {
       let cancelled = false;
@@ -357,6 +374,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
             selected,
             visuals.panelLightFactors.get(panel.index) ?? 0,
             visuals.daylight,
+            visuals.colorBySun,
           );
           const centerSurface = sampled[panelOrder];
           const altitudeOffset = centerSurface
@@ -394,16 +412,20 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
       const viewer = viewerRef.current;
       const source = sunSourceRef.current;
       const C = cesiumRef.current;
-      if (!viewer || !source || !C || !ready || !location || !sun) return;
-      viewer.clock.currentTime = C.JulianDate.fromDate(sunDate);
+      if (!viewer || !source || !C || !ready) return;
       source.entities.removeAll();
+      if (!showSun || !location || !sun) {
+        viewer.scene.requestRender();
+        return;
+      }
+      viewer.clock.currentTime = C.JulianDate.fromDate(sunDate);
       const anchor = C.Cartesian3.fromDegrees(
         location.longitude,
         location.latitude,
         roofHeightMeters + 6,
       );
       const transform = C.Transforms.eastNorthUpToFixedFrame(anchor);
-      const toWorld = (azimuthDegrees: number, altitudeDegrees: number, radius = 135) => {
+      const toWorld = (azimuthDegrees: number, altitudeDegrees: number, radius = 58) => {
         const azimuth = C.Math.toRadians(azimuthDegrees);
         const altitude = C.Math.toRadians(altitudeDegrees);
         const local = new C.Cartesian3(
@@ -419,9 +441,9 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
           id: 'sun-path',
           polyline: {
             positions: path.map((point) => toWorld(point.azimuthDegrees, point.altitudeDegrees)),
-            width: 4,
-            material: C.Color.fromCssColorString('#fbbf24').withAlpha(0.8),
-            depthFailMaterial: C.Color.fromCssColorString('#fbbf24').withAlpha(0.25),
+            width: 3,
+            material: C.Color.fromCssColorString('#fbbf24').withAlpha(0.7),
+            depthFailMaterial: C.Color.fromCssColorString('#fbbf24').withAlpha(0.2),
           },
         });
       }
@@ -450,12 +472,13 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
         id: 'sun-ray',
         polyline: {
           positions: [anchor, sunPosition],
-          width: 2,
-          material: sunColor.withAlpha(sun.daylight ? 0.45 : 0.28),
-          depthFailMaterial: sunColor.withAlpha(0.18),
+          width: 1.5,
+          material: sunColor.withAlpha(sun.daylight ? 0.32 : 0.2),
+          depthFailMaterial: sunColor.withAlpha(0.12),
         },
       });
-    }, [location, ready, roofHeightMeters, sun, sunDate]);
+      viewer.scene.requestRender();
+    }, [location, ready, roofHeightMeters, showSun, sun, sunDate]);
 
     return (
       <>
