@@ -9,3 +9,4 @@ public/cesium/
 *.log
 .DS_Store
 data/raw/
+data/processed/*.sqlite*

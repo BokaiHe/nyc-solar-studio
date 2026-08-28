@@ -4,6 +4,20 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-27
+
+### Added
+
+- Streaming GlobalBuildingAtlas preprocessing for the official NYC-covering 5×5 degree tile
+- Local SQLite R-tree containing 1,909,858 footprints with matched LoD1 heights
+- Runtime point and nearest-building lookup for arbitrary selections across the NYC metro area
+- `GBA_NYC_DB_PATH` override for external database placement
+
+### Changed
+
+- Replaced the single hardcoded demo lookup with the full local spatial index, retaining the verified demo as a missing-index fallback
+- Applied GBA footprint and height constraints to any indexed building selected on the 2D map
+
 ## [0.5.1] - 2026-08-27
 
 ### Added

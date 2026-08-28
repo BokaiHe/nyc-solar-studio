@@ -9,7 +9,8 @@
 - 点击地图锁定建筑，显示 Solar API 建筑边界与中心反馈
 - Solar API Building Insights 服务端代理
 - Solar Data Layers DSM 与建筑掩膜服务端解析
-- GlobalBuildingAtlas 单栋 LoD1 匹配实验（74-26 175th Street）
+- GlobalBuildingAtlas NYC 都会区 190 万栋本地空间索引
+- 任意点击位置的 GBA/OSM 建筑轮廓与 LoD1 高度匹配
 - GBA/OSM 精确建筑轮廓约束 Google DSM 裁切
 - 2D 选楼到孤立 3D 建筑的连续设计流程
 - 理想化阵列自动生成、屋面退距与行间距控制
@@ -69,6 +70,22 @@ GOOGLE_SOLAR_API_KEY=服务端SolarKey
 
 浏览器 Key 启用 Places API (New) 和 Maps JavaScript API，并设置 HTTP Referer 限制。服务端 Key 只启用 Solar API。
 
+## 构建 GlobalBuildingAtlas NYC 索引
+
+将官方 `w075_n45_w070_n40` 分块的三个原始文件放到 `data/raw/gba/`：
+
+- `w075_n45_w070_n40.odbl.geojson`
+- `w075_n45_w070_n40.part2.geojson`
+- `w075_n45_w070_n40.lod1.json`
+
+然后运行：
+
+```powershell
+npm run data:build-gba-nyc
+```
+
+脚本以流式方式解析约 8 GB 原始数据，裁剪到纽约都会区范围，并生成 `data/processed/gba-nyc.sqlite`。原始数据与生成数据库都已排除在 Git 版本管理之外。若数据库放在其他位置，可设置服务端环境变量 `GBA_NYC_DB_PATH`。
+
 ## 操作方法
 
 1. 搜索纽约地址、选择演示建筑，或点击卫星地图中的屋顶。
@@ -94,8 +111,9 @@ GOOGLE_SOLAR_API_KEY=服务端SolarKey
 - Building Insights 不提供自定义布局重新计算后的年发电量。
 - 当前日照颜色未包含云量、树木和周边建筑遮挡。
 - DSM 网格和自动阵列用于概念设计，未包含消防通道、结构承载、设备避让和工程级遮阴。
-- 当前 GBA 接入只包含一栋经过官方数据核验的演示建筑；纽约全域接入需要离线预处理约 8 GB 的对应轮廓和高度分块。
-- 演示建筑的 GBA 高度为 3.92 m，机器学习估计值可能与现场高度存在明显差异。
+- GBA 高度来自机器学习估计，可能与现场高度存在明显差异。
+- 本地索引覆盖纽约都会区边界框，建筑轮廓包含 ODbL 与 CC BY-NC 4.0 两类来源；公开或商业部署前需要分别核对数据许可。
+- 生成的 SQLite 数据库约 1.25 GB，常规无服务器部署无法直接随应用打包，需要独立持久化存储或托管空间数据库。
 
 ## 验证
 
@@ -109,7 +127,7 @@ npm run build
 
 - `main` 保留已发布实验版本。
 - OpenSolar 风格重构位于 `feat/opensolar-workflow`。
-- 当前孤立三维屋顶设计器版本为 `v0.5.1`。
+- 当前孤立三维屋顶设计器版本为 `v0.6.0`。
 
 ## 官方来源
 
@@ -117,5 +135,7 @@ npm run build
 - [Google Building Insights](https://developers.google.com/maps/documentation/solar/building-insights)
 - [Google Solar Potential demo](https://github.com/googlemaps-samples/js-solar-potential)
 - [OpenSolar Auto Design](https://www.opensolar.com/auto-design/)
+- [GlobalBuildingAtlas repository](https://github.com/zhu-xlab/GlobalBuildingAtlas)
+- [GlobalBuildingAtlas LoD1 dataset](https://huggingface.co/datasets/zhu-xlab/GBA.LoD1)
 
 Source: Includes solar data from Google.
