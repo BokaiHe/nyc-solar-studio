@@ -8,3 +8,4 @@ public/cesium/
 .env.*.local
 *.log
 .DS_Store
+data/raw/
