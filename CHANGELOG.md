@@ -4,6 +4,22 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-27
+
+### Added
+
+- OpenSolar-inspired satellite rooftop design workspace
+- Building center and bounding-box selection feedback
+- Left-side design tools and continuous panel-count control
+- Group rotation controls alongside single-panel editing
+- Accurate planimetric panel overlays on Google satellite imagery
+
+### Changed
+
+- Made the 2D orthographic roof view the primary design surface
+- Reorganized controls around design, sunlight, and results stages
+- Reserved local 3D preview for a shared Solar Data Layers/DSM geometry source
+
 ## [0.3.1] - 2026-08-27
 
 ### Fixed

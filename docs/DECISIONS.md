@@ -23,3 +23,11 @@ The first release stores no account or project database. Share state is encoded 
 ## ADR-006 — Explicit 3D fallback gate
 
 Five roof samples determine whether the project keeps 3D rendering or moves to a 2D satellite overlay. The decision occurs immediately after the visual geometry test.
+
+## ADR-007 — Orthographic design surface
+
+The v0.4 design workflow uses Google satellite imagery as the primary editing surface. Solar panel centers and the roof image now share the same geographic plane, eliminating the unstable height reconciliation between Building Insights and Photorealistic 3D Tiles.
+
+## ADR-008 — Local 3D requires Solar DSM
+
+A future 3D preview must derive its roof mesh from Solar Data Layers DSM and building mask data. Photorealistic city tiles remain outside the editing workflow because they cannot guarantee geometric alignment with Building Insights panel coordinates.

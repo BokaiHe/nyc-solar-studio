@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Map3DCanvas, type Map3DHandle, type MapLocation } from './map-3d-canvas';
+import { Map2DCanvas, type MapCanvasHandle, type MapLocation } from './map-2d-canvas';
 import { PlaceSearch, type SelectedPlace } from './place-search';
 import { calculateSolarSummary } from '@/lib/solar/calculations';
 import { DEFAULT_ELECTRICITY_RATE_USD_PER_KWH, DEMO_BUILDINGS } from '@/lib/solar/config';
@@ -22,7 +22,6 @@ import {
 } from '@/lib/solar/share-state';
 import type {
   BuildingInsights,
-  CameraState,
   LatLng,
   PanelOverride,
   RenderPanel,
@@ -51,6 +50,7 @@ type Action =
   | { type: 'toggle'; index: number }
   | { type: 'move'; index: number; center: LatLng }
   | { type: 'rotate'; index: number; degrees: number }
+  | { type: 'rotate-selected'; degrees: number }
   | { type: 'select-count'; count: number }
   | { type: 'clear' }
   | { type: 'reset' }
@@ -65,7 +65,7 @@ const initialState: State = {
   overrides: new Map(),
   activePanel: null,
   baseCount: 0,
-  message: '搜索地址，或直接在三维城市中点击一栋建筑。',
+  message: '搜索地址，或直接在卫星地图中点击一栋建筑。',
 };
 
 function reducer(state: State, action: Action): State {
@@ -115,6 +115,20 @@ function reducer(state: State, action: Action): State {
         rotationOffsetDegrees: ((current?.rotationOffsetDegrees ?? 0) + action.degrees + 360) % 360,
       });
       return { ...state, overrides, activePanel: action.index };
+    }
+    case 'rotate-selected': {
+      if (!state.insights) return state;
+      const overrides = new Map(state.overrides);
+      state.selected.forEach((index) => {
+        const panel = state.insights?.solarPotential.solarPanels[index];
+        if (!panel) return;
+        const current = overrides.get(index);
+        overrides.set(index, {
+          center: current?.center ?? panel.center,
+          rotationOffsetDegrees: ((current?.rotationOffsetDegrees ?? 0) + action.degrees + 360) % 360,
+        });
+      });
+      return { ...state, overrides, activePanel: null };
     }
     case 'select-count':
       return { ...state, selected: new Set(Array.from({ length: action.count }, (_, index) => index)), overrides: new Map(), activePanel: null, baseCount: action.count };
@@ -171,7 +185,7 @@ export function SolarApp() {
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('explore');
   const [editMode, setEditMode] = useState(false);
   const [examplesOpen, setExamplesOpen] = useState(false);
-  const mapRef = useRef<Map3DHandle>(null);
+  const mapRef = useRef<MapCanvasHandle>(null);
   const didLoadSharedRef = useRef(false);
   const searchParams = useSearchParams();
   const sharedDesign = useMemo(() => parseSharedDesign(searchParams.toString()), [searchParams]);
@@ -325,11 +339,6 @@ export function SolarApp() {
     return total / state.selected.size;
   }, [panelLightFactors, state.selected]);
 
-  const roofHeightMeters = useMemo(
-    () => Math.max(0, ...(state.insights?.solarPotential.roofSegmentStats.map((segment) => segment.planeHeightAtCenterMeters) ?? [0])),
-    [state.insights],
-  );
-
   const copyShareLink = useCallback(async () => {
     if (!state.insights || !state.location) return;
     const base = new Set(Array.from({ length: state.baseCount }, (_, index) => index));
@@ -348,8 +357,6 @@ export function SolarApp() {
     await navigator.clipboard.writeText(`${window.location.origin}${path}`);
     setShareMessage(state.overrides.size ? '已复制；自定义拖动位置暂未写入链接' : '链接已复制');
   }, [state]);
-
-  const initialCamera: CameraState | undefined = sharedDesign?.camera;
 
   const visiblePanels = useMemo(() => {
     if (workspaceMode === 'explore' || workspaceMode === 'focus') return [];
@@ -398,7 +405,7 @@ export function SolarApp() {
       <main className="grid min-h-screen place-items-center bg-slate-950 p-6 text-white">
         <section className="max-w-lg rounded-3xl border border-slate-800 bg-slate-900 p-8">
           <p className="text-sm font-semibold text-amber-300">需要配置 API Key</p>
-          <h1 className="mt-2 text-2xl font-semibold">NYC Solar Roof 3D</h1>
+          <h1 className="mt-2 text-2xl font-semibold">NYC Solar Studio</h1>
           <p className="mt-4 leading-7 text-slate-300">请在 <code>.env.local</code> 中填写 Google Maps 与 Solar API Key。</p>
         </section>
       </main>
@@ -407,29 +414,26 @@ export function SolarApp() {
 
   return (
     <main className="relative h-screen min-h-[720px] overflow-hidden bg-slate-950 text-white">
-      <Map3DCanvas
+      <Map2DCanvas
         ref={mapRef}
         apiKey={apiKey}
         location={mapFocusLocation}
-        roofHeightMeters={roofHeightMeters}
+        buildingBounds={state.insights?.boundingBox}
         panels={visiblePanels}
         selectedIndices={state.selected}
         panelLightFactors={panelLightFactors}
-        sunDate={simulationDate}
-        sun={sun}
-        showSun={workspaceMode === 'sun'}
+        colorBySun={workspaceMode === 'sun'}
         showBuildingMarker={state.status === 'loading' || workspaceMode === 'focus'}
         allowPanelEditing={workspaceMode === 'design' && editMode}
         allowLocationSelection={workspaceMode === 'explore' || workspaceMode === 'focus'}
-        initialCamera={initialCamera}
         onTogglePanel={(index) => dispatch({ type: 'toggle', index })}
         onMovePanel={(index, center) => dispatch({ type: 'move', index, center })}
         onSelectLocation={(location) => void analyzeLocation({ ...location, label: '地图点击的建筑' })}
         onMapError={(message) => dispatch({
           type: 'error',
           message: message?.includes('403')
-            ? 'Google Map Tiles API 尚未启用或 Key 没有权限。'
-            : '三维城市加载失败，请检查 Map Tiles API。',
+            ? 'Google Maps JavaScript API 尚未启用或 Key 没有权限。'
+            : '卫星设计地图加载失败，请检查 Maps JavaScript API。',
         })}
       />
 
@@ -459,7 +463,7 @@ export function SolarApp() {
       {state.status === 'idle' && (
         <section className="pointer-events-none absolute left-5 top-24 z-20 max-w-sm rounded-2xl border border-white/10 bg-slate-950/75 p-4 shadow-xl backdrop-blur-lg">
           <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-300">NYC Solar Roof</p>
-          <h1 className="mt-2 text-lg font-semibold">在真实三维城市里设计屋顶光伏</h1>
+          <h1 className="mt-2 text-lg font-semibold">在卫星屋顶上完成光伏方案设计</h1>
           <p className="mt-2 text-sm leading-6 text-slate-300">搜索地址，或旋转地图后点击屋顶开始。</p>
         </section>
       )}
@@ -505,6 +509,15 @@ export function SolarApp() {
         </nav>
       )}
 
+      {state.status === 'ready' && workspaceMode !== 'focus' && workspaceMode !== 'explore' && (
+        <div className="absolute left-5 top-24 z-30 flex w-14 flex-col gap-1 rounded-2xl border border-white/10 bg-slate-950/92 p-1.5 shadow-xl backdrop-blur-xl">
+          <ToolButton label="选择" symbol="↖" active={workspaceMode === 'design' && !editMode} onClick={() => { setWorkspaceMode('design'); setEditMode(false); }} />
+          <ToolButton label="铺板" symbol="▦" active={workspaceMode === 'design' && editMode} onClick={() => { setWorkspaceMode('design'); setEditMode(true); }} />
+          <ToolButton label="日照" symbol="☀" active={workspaceMode === 'sun'} onClick={() => { setWorkspaceMode('sun'); setEditMode(false); }} />
+          <ToolButton label="结果" symbol="Σ" active={workspaceMode === 'results'} onClick={() => { setWorkspaceMode('results'); setEditMode(false); }} />
+        </div>
+      )}
+
       {state.status === 'ready' && state.insights && summary && workspaceMode === 'design' && (
         <aside className="absolute right-5 top-20 z-20 max-h-[calc(100vh-6.25rem)] w-[min(360px,calc(100vw-2.5rem))] overflow-y-auto rounded-3xl border border-white/10 bg-slate-950/92 p-5 shadow-2xl backdrop-blur-xl">
           <PanelHeader eyebrow="光伏设计" title={`${summary.panelCount} 块 · ${summary.capacityKw.toFixed(1)} kW`} onClose={() => setWorkspaceMode('focus')} />
@@ -522,18 +535,35 @@ export function SolarApp() {
             })}
           </div>
 
+          <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-400">组件数量</span>
+              <span className="font-semibold text-white">{state.selected.size} / {panels.length}</span>
+            </div>
+            <input aria-label="组件数量" type="range" min="0" max={panels.length} step="1" value={state.selected.size} onChange={(event) => dispatch({ type: 'select-count', count: Number(event.target.value) })} className="mt-3 h-2 w-full cursor-pointer accent-sky-400" />
+          </div>
+
           <button type="button" onClick={() => setEditMode((editing) => !editing)} className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold ${editMode ? 'bg-white text-slate-950' : 'bg-sky-500 text-white hover:bg-sky-400'}`}>
             {editMode ? '完成编辑' : '微调板位'}
           </button>
 
           {editMode && (
             <div className="mt-3 rounded-2xl border border-sky-400/20 bg-sky-500/10 p-3">
-              <p className="text-xs leading-5 text-sky-100">浅色轮廓为候选位置。点击可增删，按住已选板可拖动。</p>
+              <p className="text-xs leading-5 text-sky-100">浅色轮廓为候选位置。点击可增删，按住蓝色组件可拖动。</p>
+              <p className="mt-3 text-[11px] font-semibold text-slate-300">整组方向</p>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <button type="button" onClick={() => dispatch({ type: 'rotate-selected', degrees: -5 })} className="rounded-lg bg-white/10 px-2 py-2 text-xs">↶ 5°</button>
+                <button type="button" onClick={() => dispatch({ type: 'rotate-selected', degrees: 90 })} className="rounded-lg bg-white/10 px-2 py-2 text-xs">横 / 竖</button>
+                <button type="button" onClick={() => dispatch({ type: 'rotate-selected', degrees: 5 })} className="rounded-lg bg-white/10 px-2 py-2 text-xs">5° ↷</button>
+              </div>
               {state.activePanel !== null && (
-                <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="mt-3 border-t border-white/10 pt-3">
+                  <p className="mb-2 text-[11px] text-slate-400">当前组件 #{state.activePanel + 1}</p>
+                  <div className="grid grid-cols-3 gap-2">
                   <button type="button" onClick={() => dispatch({ type: 'rotate', index: state.activePanel!, degrees: -15 })} className="rounded-lg bg-white/10 px-2 py-2 text-xs">↶ 15°</button>
                   <button type="button" onClick={() => dispatch({ type: 'rotate', index: state.activePanel!, degrees: 90 })} className="rounded-lg bg-white/10 px-2 py-2 text-xs">横 / 竖</button>
                   <button type="button" onClick={() => dispatch({ type: 'rotate', index: state.activePanel!, degrees: 15 })} className="rounded-lg bg-white/10 px-2 py-2 text-xs">15° ↷</button>
+                  </div>
                 </div>
               )}
             </div>
@@ -600,7 +630,7 @@ export function SolarApp() {
       )}
 
       <p className={`pointer-events-none absolute bottom-2 left-5 z-20 text-[10px] text-white/55 ${workspaceMode === 'sun' ? 'hidden' : ''}`}>
-        Includes solar data from Google · 三维瓦片 © Google
+        Includes solar data from Google · 地图影像 © Google
       </p>
     </main>
   );
@@ -615,6 +645,15 @@ function PanelHeader({ eyebrow, title, onClose }: { eyebrow: string; title: stri
       </div>
       <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white" aria-label="关闭面板">×</button>
     </div>
+  );
+}
+
+function ToolButton({ label, symbol, active, onClick }: { label: string; symbol: string; active: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className={`flex flex-col items-center rounded-xl px-1 py-2 text-[10px] transition ${active ? 'bg-sky-500 text-white' : 'text-slate-300 hover:bg-white/10'}`}>
+      <span className="text-lg leading-5">{symbol}</span>
+      <span className="mt-1">{label}</span>
+    </button>
   );
 }
 

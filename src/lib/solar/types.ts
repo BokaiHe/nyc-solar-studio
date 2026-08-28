@@ -46,6 +46,7 @@ export type SolarPotential = {
 export type BuildingInsights = {
   name: string;
   center: LatLng;
+  boundingBox?: { sw: LatLng; ne: LatLng };
   imageryDate: DateValue;
   imageryQuality: 'HIGH' | 'MEDIUM' | 'BASE';
   solarPotential: SolarPotential;
