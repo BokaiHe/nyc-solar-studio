@@ -4,6 +4,17 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-08-28
+
+### Changed
+
+- Render indexed GBA buildings as clean direct LoD1 footprint extrusions
+- Skip DSM raster reconstruction whenever a GBA building match is available
+
+### Fixed
+
+- Removed severe facade stretching and noisy roof triangulation on tall buildings
+
 ## [0.6.0] - 2026-08-27
 
 ### Added

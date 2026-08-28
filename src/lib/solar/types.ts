@@ -95,7 +95,7 @@ export type RoofModelData = {
   center: LatLng;
   imageryQuality: string;
   imageryDate?: DateValue;
-  buildingSource: 'GLOBAL_BUILDING_ATLAS_HYBRID' | 'GOOGLE_SOLAR_DSM';
+  buildingSource: 'GLOBAL_BUILDING_ATLAS_LOD1' | 'GLOBAL_BUILDING_ATLAS_HYBRID' | 'GOOGLE_SOLAR_DSM';
   gbaBuildingId?: string;
   gbaHeightMeters?: number;
   gbaHeightVariance?: number;

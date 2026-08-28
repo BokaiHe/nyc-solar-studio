@@ -227,7 +227,10 @@ export function RoofDesigner3D({ model, panelWidthMeters, panelHeightMeters, sun
           <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50 p-3 text-xs leading-5 text-slate-600">
             <p className="font-semibold text-sky-700">GlobalBuildingAtlas 已匹配</p>
             <p>{model.gbaBuildingId} · LoD1 高度 {model.gbaHeightMeters?.toFixed(2)} m</p>
-            <p className="text-[10px] text-slate-400">GBA LoD1: CC BY-NC 4.0 · 屋顶细节来自 Google DSM</p>
+            <p className="text-[10px] text-slate-400">GBA LoD1: CC BY-NC 4.0 · 轮廓按估算高度直接挤出</p>
+            {(model.gbaHeightVariance ?? 0) >= (model.gbaHeightMeters ?? Infinity) * 0.5 && (
+              <p className="mt-1 font-medium text-amber-600">高度不确定性较高，当前体块仅供交互演示。</p>
+            )}
           </div>
         )}
         <div className="mt-4 grid grid-cols-2 gap-3">
