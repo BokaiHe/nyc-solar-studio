@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Map2DCanvas, type MapCanvasHandle, type MapLocation } from './map-2d-canvas';
+import { RoofDesigner3D } from './roof-designer-3d';
 import { PlaceSearch, type SelectedPlace } from './place-search';
 import { calculateSolarSummary } from '@/lib/solar/calculations';
 import { DEFAULT_ELECTRICITY_RATE_USD_PER_KWH, DEMO_BUILDINGS } from '@/lib/solar/config';
@@ -25,6 +26,7 @@ import type {
   LatLng,
   PanelOverride,
   RenderPanel,
+  RoofModelData,
 } from '@/lib/solar/types';
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'no-data' | 'error';
@@ -185,6 +187,10 @@ export function SolarApp() {
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('explore');
   const [editMode, setEditMode] = useState(false);
   const [examplesOpen, setExamplesOpen] = useState(false);
+  const [designSurface, setDesignSurface] = useState<'2d' | '3d'>('2d');
+  const [roofModel, setRoofModel] = useState<RoofModelData | null>(null);
+  const [roofModelStatus, setRoofModelStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [conceptPanelCount, setConceptPanelCount] = useState(0);
   const mapRef = useRef<MapCanvasHandle>(null);
   const didLoadSharedRef = useRef(false);
   const searchParams = useSearchParams();
@@ -263,6 +269,10 @@ export function SolarApp() {
   const analyzeLocation = useCallback(async (place: SelectedPlace, shared?: SharedDesign) => {
     const location = { latitude: place.latitude, longitude: place.longitude };
     dispatch({ type: 'loading', location, label: place.label });
+    setRoofModel(null);
+    setRoofModelStatus('idle');
+    setConceptPanelCount(0);
+    setDesignSurface('2d');
     setDataWarning('');
     setShareMessage('');
     try {
@@ -398,7 +408,36 @@ export function SolarApp() {
     setExamplesOpen(false);
     setDataWarning('');
     setShareMessage('');
+    setDesignSurface('2d');
+    setRoofModel(null);
+    setRoofModelStatus('idle');
+    setConceptPanelCount(0);
   }, []);
+
+  const enter3DDesign = useCallback(async () => {
+    if (!state.insights) return;
+    setWorkspaceMode('design');
+    setEditMode(false);
+    setDesignSurface('3d');
+    if (roofModel) return;
+    setRoofModelStatus('loading');
+    try {
+      const { latitude, longitude } = state.insights.center;
+      const response = await fetch(`/api/solar/roof-model?lat=${latitude}&lng=${longitude}`);
+      if (!response.ok) throw new Error('Roof model request failed');
+      setRoofModel(await response.json() as RoofModelData);
+      setRoofModelStatus('idle');
+    } catch {
+      setRoofModelStatus('error');
+    }
+  }, [roofModel, state.insights]);
+
+  useEffect(() => {
+    if (searchParams.get('view') !== '3d') return;
+    if (state.status !== 'ready' || !state.insights || designSurface === '3d' || roofModelStatus !== 'idle') return;
+    const timeout = window.setTimeout(() => void enter3DDesign(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [designSurface, enter3DDesign, roofModelStatus, searchParams, state.insights, state.status]);
 
   if (!apiKey) {
     return (
@@ -414,6 +453,15 @@ export function SolarApp() {
 
   return (
     <main className="relative h-screen min-h-[720px] overflow-hidden bg-slate-950 text-white">
+      {designSurface === '3d' && state.status === 'ready' && roofModel ? (
+        <RoofDesigner3D
+          model={roofModel}
+          panelWidthMeters={state.insights?.solarPotential.panelWidthMeters ?? 1.1}
+          panelHeightMeters={state.insights?.solarPotential.panelHeightMeters ?? 1.8}
+          sun={sun}
+          onPanelCountChange={setConceptPanelCount}
+        />
+      ) : (
       <Map2DCanvas
         ref={mapRef}
         apiKey={apiKey}
@@ -436,6 +484,27 @@ export function SolarApp() {
             : '卫星设计地图加载失败，请检查 Maps JavaScript API。',
         })}
       />
+      )}
+
+      {designSurface === '3d' && roofModelStatus === 'loading' && (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-slate-950/80 backdrop-blur-sm">
+          <div className="rounded-3xl border border-white/10 bg-slate-900 p-6 text-center shadow-2xl">
+            <div className="mx-auto h-9 w-9 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
+            <p className="mt-4 text-sm font-semibold">正在生成孤立屋顶模型</p>
+            <p className="mt-1 text-xs text-slate-400">下载DSM与建筑Mask并构建三角网格…</p>
+          </div>
+        </div>
+      )}
+
+      {designSurface === '3d' && roofModelStatus === 'error' && (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-[min(420px,calc(100vw-2rem))] rounded-3xl border border-white/10 bg-slate-900 p-6 text-center shadow-2xl">
+            <p className="font-semibold text-amber-300">这栋建筑暂时无法生成3D模型</p>
+            <p className="mt-2 text-sm leading-6 text-slate-300">Solar Data Layers可能没有覆盖该位置，可以继续使用2D屋顶设计。</p>
+            <button type="button" onClick={() => { setDesignSurface('2d'); setRoofModelStatus('idle'); }} className="mt-5 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-slate-950">返回2D设计</button>
+          </div>
+        </div>
+      )}
 
       <header className="absolute left-4 right-4 top-4 z-30 flex items-start gap-2 lg:left-5 lg:right-auto">
         <button type="button" onClick={resetWorkspace} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-white/10 bg-slate-950/90 text-sm font-black tracking-tight shadow-xl backdrop-blur-xl" aria-label="返回探索">
@@ -488,9 +557,12 @@ export function SolarApp() {
           <h2 className="mt-2 line-clamp-2 text-lg font-semibold">{state.locationLabel}</h2>
           <p className="mt-3 text-xs leading-5 text-slate-400">{qualityLabel(state.insights.imageryQuality)}影像 · {formatDate(state.insights)} · {panels.length} 个候选板位</p>
           {dataWarning && <p className="mt-2 text-xs text-amber-300">{dataWarning}</p>}
-          <div className="mt-5 grid grid-cols-2 gap-2">
-            <button type="button" onClick={enterDesign} className="rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold hover:bg-sky-400">开始设计</button>
-            <button type="button" onClick={() => setWorkspaceMode('sun')} className="rounded-xl bg-white/10 px-4 py-3 text-sm font-medium hover:bg-white/15">查看日照</button>
+          <div className="mt-5 space-y-2">
+            <button type="button" onClick={() => void enter3DDesign()} className="w-full rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold hover:bg-sky-400">进入孤立3D设计</button>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => { setDesignSurface('2d'); enterDesign(); }} className="rounded-xl bg-white/10 px-4 py-3 text-sm font-medium hover:bg-white/15">2D屋顶设计</button>
+              <button type="button" onClick={() => setWorkspaceMode('sun')} className="rounded-xl bg-white/10 px-4 py-3 text-sm font-medium hover:bg-white/15">查看日照</button>
+            </div>
           </div>
         </section>
       )}
@@ -510,6 +582,13 @@ export function SolarApp() {
       )}
 
       {state.status === 'ready' && workspaceMode !== 'focus' && workspaceMode !== 'explore' && (
+        <div className="absolute left-1/2 top-5 z-30 flex -translate-x-1/2 rounded-2xl border border-white/10 bg-slate-950/90 p-1 shadow-xl backdrop-blur-xl">
+          <button type="button" onClick={() => setDesignSurface('2d')} className={`rounded-xl px-4 py-2 text-xs ${designSurface === '2d' ? 'bg-white text-slate-950' : 'text-slate-300'}`}>2D屋顶</button>
+          <button type="button" onClick={() => void enter3DDesign()} className={`rounded-xl px-4 py-2 text-xs ${designSurface === '3d' ? 'bg-white text-slate-950' : 'text-slate-300'}`}>孤立3D</button>
+        </div>
+      )}
+
+      {state.status === 'ready' && workspaceMode !== 'focus' && workspaceMode !== 'explore' && (
         <div className="absolute left-5 top-24 z-30 flex w-14 flex-col gap-1 rounded-2xl border border-white/10 bg-slate-950/92 p-1.5 shadow-xl backdrop-blur-xl">
           <ToolButton label="选择" symbol="↖" active={workspaceMode === 'design' && !editMode} onClick={() => { setWorkspaceMode('design'); setEditMode(false); }} />
           <ToolButton label="铺板" symbol="▦" active={workspaceMode === 'design' && editMode} onClick={() => { setWorkspaceMode('design'); setEditMode(true); }} />
@@ -518,7 +597,7 @@ export function SolarApp() {
         </div>
       )}
 
-      {state.status === 'ready' && state.insights && summary && workspaceMode === 'design' && (
+      {state.status === 'ready' && state.insights && summary && workspaceMode === 'design' && designSurface === '2d' && (
         <aside className="absolute right-5 top-20 z-20 max-h-[calc(100vh-6.25rem)] w-[min(360px,calc(100vw-2.5rem))] overflow-y-auto rounded-3xl border border-white/10 bg-slate-950/92 p-5 shadow-2xl backdrop-blur-xl">
           <PanelHeader eyebrow="光伏设计" title={`${summary.panelCount} 块 · ${summary.capacityKw.toFixed(1)} kW`} onClose={() => setWorkspaceMode('focus')} />
           <p className="mt-2 text-xs leading-5 text-slate-400">先选推荐规模，需要微调时再进入编辑。</p>
@@ -596,7 +675,7 @@ export function SolarApp() {
         <aside className="absolute right-5 top-20 z-20 max-h-[calc(100vh-6.25rem)] w-[min(370px,calc(100vw-2.5rem))] overflow-y-auto rounded-3xl border border-white/10 bg-slate-950/92 p-5 shadow-2xl backdrop-blur-xl">
           <PanelHeader eyebrow="方案结果" title={`${summary.capacityKw.toFixed(1)} kW 屋顶系统`} onClose={() => setWorkspaceMode('focus')} />
           <div className="mt-5 grid grid-cols-2 gap-3">
-            <Metric label="光伏板" value={`${summary.panelCount} 块`} detail="400 W / 块" />
+            <Metric label="光伏板" value={`${designSurface === '3d' ? conceptPanelCount : summary.panelCount} 块`} detail="概念布局" />
             <Metric label="年发电基准" value={`${Math.round(summary.annualAcKwh).toLocaleString()} kWh`} detail="Google 推荐布局" />
             <Metric label="年减碳基准" value={`${Math.round(summary.annualCarbonKg).toLocaleString()} kg`} detail="基于当地电网" />
             <Metric label="当前直射" value={`${Math.round(selectedLightAverage * 100)}%`} detail="几何模拟" />

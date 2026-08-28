@@ -81,3 +81,18 @@ export type CameraState = {
   tilt: number;
   range: number;
 };
+
+export type RoofModelData = {
+  positions: number[];
+  indices: number[];
+  wallPositions: number[];
+  wallIndices: number[];
+  deckPositions: number[];
+  deckIndices: number[];
+  widthMeters: number;
+  depthMeters: number;
+  baseElevationMeters: number;
+  center: LatLng;
+  imageryQuality: string;
+  imageryDate?: DateValue;
+};

@@ -4,6 +4,22 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-27
+
+### Added
+
+- Two-dimensional building selection followed by an isolated three-dimensional roof designer
+- Server-side Solar Data Layers DSM and building-mask processing
+- Cleaned roof mesh with generated perimeter walls
+- Idealized automatic panel arrays with setback and row-spacing controls
+- Direct 3D panel placement, dragging, rotation and deletion
+- Date-and-time-driven directional sunlight in the isolated scene
+
+### Changed
+
+- Kept the satellite map focused on finding and confirming a building
+- Moved detailed panel design to a lightweight local Three.js scene
+
 ## [0.4.0] - 2026-08-27
 
 ### Added

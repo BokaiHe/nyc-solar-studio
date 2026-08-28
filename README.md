@@ -1,6 +1,6 @@
 # NYC Solar Studio
 
-以 OpenSolar 的任务流为交互参考，在纽约卫星屋顶上完成建筑选择、Google 推荐铺板、板组编辑、日照预览与方案结果查看。
+以 OpenSolar 的任务流为交互参考，在纽约卫星地图选定建筑，再进入由 Google DSM 生成的单体三维屋顶完成光伏设计与日照预览。
 
 ## 当前功能
 
@@ -8,6 +8,10 @@
 - Google Maps 卫星正射设计画布
 - 点击地图锁定建筑，显示 Solar API 建筑边界与中心反馈
 - Solar API Building Insights 服务端代理
+- Solar Data Layers DSM 与建筑掩膜服务端解析
+- 2D 选楼到孤立 3D 建筑的连续设计流程
+- 理想化阵列自动生成、屋面退距与行间距控制
+- 三维屋顶点击添加、拖动、旋转和删除组件
 - Google 推荐板位与小型、均衡、最大化方案
 - 组件数量连续调节
 - 候选板点击增删、单板拖动与旋转
@@ -27,7 +31,7 @@
 - 右侧：当前方案或选中对象属性
 - 底部：日照模式日期与时间轴
 
-设计操作以2D正射画布为主，使 Solar API 经纬度板位和 Google 卫星屋顶保持稳定对齐。局部3D预览将在 Solar Data Layers/DSM 接入后加入，避免再次混用独立的三维网格数据。
+2D 正射画布负责搜索和选择建筑。进入三维设计后，服务端从 Solar Data Layers 下载 DSM 与建筑掩膜，提取目标建筑、清理边缘异常高程并生成带外墙的局部网格。三维阵列属于概念级理想方案，可直接编辑并随日期、时间获得光照反馈。
 
 ## 技术栈
 
@@ -37,6 +41,9 @@
 - Google Maps JavaScript API
 - Google Places API (New)
 - Google Solar API Building Insights
+- Google Solar API Data Layers
+- GeoTIFF + Proj4
+- Three.js + React Three Fiber
 - SunCalc
 - Vitest
 - Vercel
@@ -62,10 +69,10 @@ GOOGLE_SOLAR_API_KEY=服务端SolarKey
 ## 操作方法
 
 1. 搜索纽约地址、选择演示建筑，或点击卫星地图中的屋顶。
-2. 确认建筑边界后进入设计。
-3. 选择推荐规模或拖动组件数量滑块。
-4. 进入“铺板”工具，点击候选位置增删组件。
-5. 拖动蓝色组件，或在右侧调整单块及整组方向。
+2. 确认建筑边界后，点击“进入孤立3D设计”。
+3. 等待 DSM 屋顶模型生成，调整阵列方位、倾角、屋面退距及行间距。
+4. 点击“生成整齐阵列”，也可点击屋顶添加单块组件。
+5. 拖动蓝色组件，或在右侧旋转和删除单块组件。
 6. 进入日照模式，选择日期并拖动时间轴。
 7. 在结果页查看系统规模、年发电基准和减碳基准。
 
@@ -83,7 +90,7 @@ GOOGLE_SOLAR_API_KEY=服务端SolarKey
 - Google 推荐布局默认采用 400 W 组件并与屋顶齐平。
 - Building Insights 不提供自定义布局重新计算后的年发电量。
 - 当前日照颜色未包含云量、树木和周边建筑遮挡。
-- 工程级遮阴、屋顶高程和局部3D需要 Solar Data Layers/DSM。
+- DSM 网格和自动阵列用于概念设计，未包含消防通道、结构承载、设备避让和工程级遮阴。
 
 ## 验证
 
@@ -97,7 +104,7 @@ npm run build
 
 - `main` 保留已发布实验版本。
 - OpenSolar 风格重构位于 `feat/opensolar-workflow`。
-- 当前卫星设计器版本为 `v0.4.0`。
+- 当前孤立三维屋顶设计器版本为 `v0.5.0`。
 
 ## 官方来源
 
