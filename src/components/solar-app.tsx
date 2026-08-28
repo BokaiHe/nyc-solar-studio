@@ -76,6 +76,7 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         status: 'ready',
+        location: action.insights.center,
         insights: action.insights,
         selected: action.selected ?? new Set(),
         overrides: new Map(),
@@ -342,7 +343,7 @@ export function SolarApp() {
       removed,
       imageryDate: state.insights.imageryDate,
       panelCount: state.insights.solarPotential.solarPanels.length,
-      camera: mapRef.current?.getCamera() ?? { heading: 25, tilt: 55, range: 240 },
+      camera: mapRef.current?.getCamera() ?? { heading: 25, tilt: 55, range: 135 },
     });
     await navigator.clipboard.writeText(`${window.location.origin}${path}`);
     setShareMessage(state.overrides.size ? '已复制；自定义拖动位置暂未写入链接' : '链接已复制');
@@ -361,6 +362,18 @@ export function SolarApp() {
     );
     return panels.filter((panel) => state.selected.has(panel.index) || panel.index < candidateLimit);
   }, [editMode, panels, state.selected, workspaceMode]);
+
+  const mapFocusLocation = useMemo<MapLocation | null>(() => {
+    if (!state.location || workspaceMode === 'explore' || workspaceMode === 'focus') {
+      return state.location;
+    }
+    const selectedPanels = panels.filter((panel) => state.selected.has(panel.index));
+    if (selectedPanels.length === 0) return state.location;
+    return {
+      latitude: selectedPanels.reduce((sum, panel) => sum + panel.center.latitude, 0) / selectedPanels.length,
+      longitude: selectedPanels.reduce((sum, panel) => sum + panel.center.longitude, 0) / selectedPanels.length,
+    };
+  }, [panels, state.location, state.selected, workspaceMode]);
 
   const enterDesign = useCallback(() => {
     if (state.selected.size === 0 && presets.length > 0) {
@@ -397,7 +410,7 @@ export function SolarApp() {
       <Map3DCanvas
         ref={mapRef}
         apiKey={apiKey}
-        location={state.location}
+        location={mapFocusLocation}
         roofHeightMeters={roofHeightMeters}
         panels={visiblePanels}
         selectedIndices={state.selected}
@@ -405,6 +418,7 @@ export function SolarApp() {
         sunDate={simulationDate}
         sun={sun}
         showSun={workspaceMode === 'sun'}
+        showBuildingMarker={state.status === 'loading' || workspaceMode === 'focus'}
         allowPanelEditing={workspaceMode === 'design' && editMode}
         allowLocationSelection={workspaceMode === 'explore' || workspaceMode === 'focus'}
         initialCamera={initialCamera}

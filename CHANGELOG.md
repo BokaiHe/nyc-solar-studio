@@ -4,6 +4,15 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-27
+
+### Fixed
+
+- Recentered the camera on the Solar API building and the active panel group
+- Added an explicit selected-building marker during building focus
+- Added immediate roof-fitting feedback after choosing a panel configuration
+- Increased design-panel contrast and reduced the default camera distance
+
 ## [0.3.0] - 2026-08-27
 
 ### Changed

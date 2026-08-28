@@ -40,6 +40,7 @@ type Map3DCanvasProps = {
   sunDate: Date;
   sun: SunSnapshot | null;
   showSun: boolean;
+  showBuildingMarker: boolean;
   allowPanelEditing: boolean;
   allowLocationSelection: boolean;
   initialCamera?: CameraState;
@@ -49,7 +50,7 @@ type Map3DCanvasProps = {
   onMapError: (message?: string) => void;
 };
 
-const DEFAULT_CAMERA: CameraState = { heading: 25, tilt: 55, range: 240 };
+const DEFAULT_CAMERA: CameraState = { heading: 25, tilt: 55, range: 135 };
 
 function panelColor(
   C: typeof import('cesium'),
@@ -59,7 +60,7 @@ function panelColor(
   colorBySun: boolean,
 ) {
   if (!selected) return C.Color.WHITE.withAlpha(0.12);
-  if (!colorBySun) return C.Color.fromCssColorString('#075985').withAlpha(0.94);
+  if (!colorBySun) return C.Color.fromCssColorString('#0284c7').withAlpha(0.98);
   if (!daylight) return C.Color.fromCssColorString('#334155').withAlpha(0.9);
   if (factor > 0.75) return C.Color.fromCssColorString('#facc15').withAlpha(0.92);
   if (factor > 0.35) return C.Color.fromCssColorString('#f97316').withAlpha(0.9);
@@ -84,6 +85,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
       sunDate,
       sun,
       showSun,
+      showBuildingMarker,
       allowPanelEditing,
       allowLocationSelection,
       initialCamera,
@@ -99,12 +101,14 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
     const cesiumRef = useRef<typeof import('cesium') | null>(null);
     const panelSourceRef = useRef<CustomDataSource | null>(null);
     const sunSourceRef = useRef<CustomDataSource | null>(null);
+    const selectionSourceRef = useRef<CustomDataSource | null>(null);
     const handlerRef = useRef<ScreenSpaceEventHandler | null>(null);
     const callbacksRef = useRef({ onTogglePanel, onMovePanel, onSelectLocation, onMapError });
     const interactionRef = useRef({ allowPanelEditing, allowLocationSelection });
     const panelVisualsRef = useRef({ selectedIndices, panelLightFactors, daylight: sun?.daylight ?? false, colorBySun: showSun });
     const [ready, setReady] = useState(false);
     const [dragging, setDragging] = useState(false);
+    const [panelRendering, setPanelRendering] = useState(false);
 
     useEffect(() => {
       callbacksRef.current = { onTogglePanel, onMovePanel, onSelectLocation, onMapError };
@@ -163,10 +167,13 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
 
           const panelSource = new C.CustomDataSource('solar-panels');
           const sunSource = new C.CustomDataSource('solar-sun');
+          const selectionSource = new C.CustomDataSource('building-selection');
           await viewer.dataSources.add(panelSource);
           await viewer.dataSources.add(sunSource);
+          await viewer.dataSources.add(selectionSource);
           panelSourceRef.current = panelSource;
           sunSourceRef.current = sunSource;
+          selectionSourceRef.current = selectionSource;
 
           const tileset = await C.createGooglePhotorealistic3DTileset({
             key: apiKey,
@@ -286,6 +293,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
         viewerRef.current = null;
         panelSourceRef.current = null;
         sunSourceRef.current = null;
+        selectionSourceRef.current = null;
         setReady(false);
       };
     }, [apiKey]);
@@ -301,7 +309,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
         new C.HeadingPitchRange(
           C.Math.toRadians(camera.heading),
           C.Math.toRadians(-Math.max(20, camera.tilt)),
-          Math.max(90, camera.range),
+          Math.min(175, Math.max(105, camera.range)),
         ),
       );
       viewer.camera.lookAtTransform(C.Matrix4.IDENTITY);
@@ -343,7 +351,11 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
       const C = cesiumRef.current;
       if (!viewer || !source || !C || !ready) return;
       source.entities.removeAll();
-      if (panels.length === 0) return;
+      if (panels.length === 0) {
+        setPanelRendering(false);
+        return;
+      }
+      setPanelRendering(true);
 
       const renderPanels = async () => {
         const originalCenterAltitudes = panels.map((panel) =>
@@ -400,6 +412,7 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
             },
           });
         }
+        setPanelRendering(false);
         viewer.scene.requestRender();
       };
       void renderPanels();
@@ -407,6 +420,45 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
         cancelled = true;
       };
     }, [panels, ready]);
+
+    useEffect(() => {
+      const viewer = viewerRef.current;
+      const source = selectionSourceRef.current;
+      const C = cesiumRef.current;
+      if (!viewer || !source || !C || !ready) return;
+      source.entities.removeAll();
+      if (!showBuildingMarker || !location) {
+        viewer.scene.requestRender();
+        return;
+      }
+      const markerPosition = C.Cartesian3.fromDegrees(
+        location.longitude,
+        location.latitude,
+        roofHeightMeters + 5,
+      );
+      source.entities.add({
+        id: 'selected-building-marker',
+        position: markerPosition,
+        point: {
+          pixelSize: 13,
+          color: C.Color.fromCssColorString('#38bdf8'),
+          outlineColor: C.Color.WHITE,
+          outlineWidth: 3,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: {
+          text: '已选建筑',
+          font: '600 13px sans-serif',
+          fillColor: C.Color.WHITE,
+          showBackground: true,
+          backgroundColor: C.Color.fromCssColorString('#020617').withAlpha(0.82),
+          backgroundPadding: new C.Cartesian2(9, 6),
+          pixelOffset: new C.Cartesian2(0, -30),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+      viewer.scene.requestRender();
+    }, [location, ready, roofHeightMeters, showBuildingMarker]);
 
     useEffect(() => {
       const viewer = viewerRef.current;
@@ -491,6 +543,11 @@ export const Map3DCanvas = forwardRef<Map3DHandle, Map3DCanvasProps>(
         {dragging && (
           <div className="pointer-events-none absolute left-1/2 top-24 -translate-x-1/2 rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold text-white shadow-xl">
             拖动光伏板，松开完成放置
+          </div>
+        )}
+        {panelRendering && (
+          <div className="pointer-events-none absolute left-1/2 top-24 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/90 px-4 py-2 text-xs text-sky-200 shadow-xl backdrop-blur-xl">
+            正在将方案贴合到屋顶…
           </div>
         )}
       </>
