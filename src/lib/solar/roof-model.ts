@@ -4,6 +4,7 @@ import * as geotiff from 'geotiff';
 import * as geokeysToProj4 from 'geotiff-geokeys-to-proj4';
 import proj4 from 'proj4';
 import type { LatLng, RoofModelData } from './types';
+import type { GbaBuildingMatch } from '@/lib/gba/demo-buildings';
 
 type Bounds = { north: number; south: number; east: number; west: number };
 type Raster = { width: number; height: number; values: number[]; bounds: Bounds };
@@ -78,6 +79,30 @@ export function connectedRoofMask(mask: Raster, location: LatLng): Uint8Array {
   return selected;
 }
 
+function footprintRoofMask(raster: Raster, footprint: LatLng[]) {
+  const selected = new Uint8Array(raster.width * raster.height);
+  for (let row = 0; row < raster.height; row += 1) {
+    const latitude = raster.bounds.north
+      - (row / Math.max(1, raster.height - 1)) * (raster.bounds.north - raster.bounds.south);
+    for (let column = 0; column < raster.width; column += 1) {
+      const longitude = raster.bounds.west
+        + (column / Math.max(1, raster.width - 1)) * (raster.bounds.east - raster.bounds.west);
+      let inside = false;
+      for (let index = 0, previous = footprint.length - 1; index < footprint.length; previous = index, index += 1) {
+        const current = footprint[index];
+        const prior = footprint[previous];
+        if (
+          (current.latitude > latitude) !== (prior.latitude > latitude)
+          && longitude < (prior.longitude - current.longitude) * (latitude - current.latitude)
+            / (prior.latitude - current.latitude) + current.longitude
+        ) inside = !inside;
+      }
+      if (inside) selected[row * raster.width + column] = 1;
+    }
+  }
+  return selected;
+}
+
 function median(values: number[]) {
   if (!values.length) return 0;
   values.sort((a, b) => a - b);
@@ -114,6 +139,7 @@ export async function buildRoofModel(
   urls: { dsmUrl: string; maskUrl: string; imageryQuality: string; imageryDate?: { year: number; month: number; day: number } },
   apiKey: string,
   location: LatLng,
+  gbaBuilding?: GbaBuildingMatch | null,
 ): Promise<RoofModelData> {
   const [dsm, mask] = await Promise.all([
     downloadRaster(urls.dsmUrl, apiKey),
@@ -122,7 +148,10 @@ export async function buildRoofModel(
   if (dsm.width !== mask.width || dsm.height !== mask.height) {
     throw new Error('DSM and roof mask dimensions differ');
   }
-  const selected = connectedRoofMask(mask, location);
+  const footprintSelection = gbaBuilding ? footprintRoofMask(mask, gbaBuilding.footprint) : null;
+  const selected = footprintSelection && footprintSelection.reduce((sum, value) => sum + value, 0) >= 4
+    ? footprintSelection
+    : connectedRoofMask(mask, location);
   const roofValues: number[] = [];
   const groundValues: number[] = [];
   for (let index = 0; index < dsm.values.length; index += 1) {
@@ -137,7 +166,9 @@ export async function buildRoofModel(
   const roofLow = quantile(sortedRoofValues, 0.04);
   const roofHigh = quantile(sortedRoofValues, 0.96);
   const groundMedian = median(groundValues);
-  const baseElevation = Math.min(roofMedian - 3, groundMedian || roofMedian - 8);
+  const baseElevation = gbaBuilding
+    ? roofMedian - gbaBuilding.heightMeters
+    : Math.min(roofMedian - 3, groundMedian || roofMedian - 8);
   const centerLatitude = (dsm.bounds.north + dsm.bounds.south) / 2;
   const fullWidthMeters = (dsm.bounds.east - dsm.bounds.west) * 111_320 * Math.cos(centerLatitude * Math.PI / 180);
   const fullDepthMeters = (dsm.bounds.north - dsm.bounds.south) * 111_320;
@@ -235,5 +266,9 @@ export async function buildRoofModel(
     center: location,
     imageryQuality: urls.imageryQuality,
     imageryDate: urls.imageryDate,
+    buildingSource: gbaBuilding ? 'GLOBAL_BUILDING_ATLAS_HYBRID' : 'GOOGLE_SOLAR_DSM',
+    gbaBuildingId: gbaBuilding?.id,
+    gbaHeightMeters: gbaBuilding?.heightMeters,
+    gbaHeightVariance: gbaBuilding?.heightVariance,
   };
 }

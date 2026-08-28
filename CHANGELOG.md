@@ -4,6 +4,18 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-27
+
+### Added
+
+- Verified GlobalBuildingAtlas LoD1 record for `osm248172169USA`
+- Exact single-building footprint constraint for Google DSM roof extraction
+- GBA source, building identifier, height and license disclosure in the 3D designer
+
+### Fixed
+
+- Prevented the verified Queens terrace demo from merging with the full connected row of neighboring roofs
+
 ## [0.5.0] - 2026-08-27
 
 ### Added

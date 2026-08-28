@@ -9,6 +9,8 @@
 - 点击地图锁定建筑，显示 Solar API 建筑边界与中心反馈
 - Solar API Building Insights 服务端代理
 - Solar Data Layers DSM 与建筑掩膜服务端解析
+- GlobalBuildingAtlas 单栋 LoD1 匹配实验（74-26 175th Street）
+- GBA/OSM 精确建筑轮廓约束 Google DSM 裁切
 - 2D 选楼到孤立 3D 建筑的连续设计流程
 - 理想化阵列自动生成、屋面退距与行间距控制
 - 三维屋顶点击添加、拖动、旋转和删除组件
@@ -42,6 +44,7 @@
 - Google Places API (New)
 - Google Solar API Building Insights
 - Google Solar API Data Layers
+- GlobalBuildingAtlas LoD1（CC BY-NC 4.0）
 - GeoTIFF + Proj4
 - Three.js + React Three Fiber
 - SunCalc
@@ -91,6 +94,8 @@ GOOGLE_SOLAR_API_KEY=服务端SolarKey
 - Building Insights 不提供自定义布局重新计算后的年发电量。
 - 当前日照颜色未包含云量、树木和周边建筑遮挡。
 - DSM 网格和自动阵列用于概念设计，未包含消防通道、结构承载、设备避让和工程级遮阴。
+- 当前 GBA 接入只包含一栋经过官方数据核验的演示建筑；纽约全域接入需要离线预处理约 8 GB 的对应轮廓和高度分块。
+- 演示建筑的 GBA 高度为 3.92 m，机器学习估计值可能与现场高度存在明显差异。
 
 ## 验证
 
@@ -104,7 +109,7 @@ npm run build
 
 - `main` 保留已发布实验版本。
 - OpenSolar 风格重构位于 `feat/opensolar-workflow`。
-- 当前孤立三维屋顶设计器版本为 `v0.5.0`。
+- 当前孤立三维屋顶设计器版本为 `v0.5.1`。
 
 ## 官方来源
 

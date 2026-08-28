@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildRoofModel } from '@/lib/solar/roof-model';
+import { findGbaDemoBuilding } from '@/lib/gba/demo-buildings';
 
 export const runtime = 'nodejs';
 
@@ -36,7 +37,8 @@ export async function GET(request: NextRequest) {
       imageryQuality: string;
       imageryDate?: { year: number; month: number; day: number };
     };
-    const model = await buildRoofModel(urls, apiKey, { latitude, longitude });
+    const location = { latitude, longitude };
+    const model = await buildRoofModel(urls, apiKey, location, findGbaDemoBuilding(location));
     modelCache.set(cacheKey, { model, expiresAt: Date.now() + 5 * 60 * 1000 });
     return NextResponse.json(model, { headers: { 'Cache-Control': 'private, max-age=300' } });
   } catch (error) {
