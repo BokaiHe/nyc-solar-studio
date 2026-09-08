@@ -455,6 +455,7 @@ export function SolarApp() {
     <main className="relative h-screen min-h-[720px] overflow-hidden bg-slate-950 text-white">
       {designSurface === '3d' && state.status === 'ready' && roofModel ? (
         <RoofDesigner3D
+          key={roofModel.nycBuildingId ?? roofModel.gbaBuildingId}
           model={roofModel}
           panelWidthMeters={state.insights?.solarPotential.panelWidthMeters ?? 1.1}
           panelHeightMeters={state.insights?.solarPotential.panelHeightMeters ?? 1.8}
@@ -490,8 +491,8 @@ export function SolarApp() {
         <div className="absolute inset-0 z-40 grid place-items-center bg-slate-950/80 backdrop-blur-sm">
           <div className="rounded-3xl border border-white/10 bg-slate-900 p-6 text-center shadow-2xl">
             <div className="mx-auto h-9 w-9 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
-            <p className="mt-4 text-sm font-semibold">正在生成孤立屋顶模型</p>
-            <p className="mt-1 text-xs text-slate-400">下载DSM与建筑Mask并构建三角网格…</p>
+            <p className="mt-4 text-sm font-semibold">正在加载纽约三维建筑</p>
+            <p className="mt-1 text-xs text-slate-400">读取建筑的屋顶与墙面…</p>
           </div>
         </div>
       )}
@@ -499,8 +500,8 @@ export function SolarApp() {
       {designSurface === '3d' && roofModelStatus === 'error' && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-slate-950/80 backdrop-blur-sm">
           <div className="w-[min(420px,calc(100vw-2rem))] rounded-3xl border border-white/10 bg-slate-900 p-6 text-center shadow-2xl">
-            <p className="font-semibold text-amber-300">这栋建筑暂时无法生成3D模型</p>
-            <p className="mt-2 text-sm leading-6 text-slate-300">Solar Data Layers可能没有覆盖该位置，可以继续使用2D屋顶设计。</p>
+            <p className="font-semibold text-amber-300">这栋建筑暂时无法加载3D模型</p>
+            <p className="mt-2 text-sm leading-6 text-slate-300">该位置的历史三维模型未匹配或服务暂不可用。可以返回地图重新选楼，或继续2D设计。</p>
             <button type="button" onClick={() => { setDesignSurface('2d'); setRoofModelStatus('idle'); }} className="mt-5 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-slate-950">返回2D设计</button>
           </div>
         </div>

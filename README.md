@@ -1,141 +1,73 @@
 # NYC Solar Studio
 
-以 OpenSolar 的任务流为交互参考，在纽约卫星地图选定建筑，再进入由 Google DSM 生成的单体三维屋顶完成光伏设计与日照预览。
+在纽约卫星地图选择建筑，进入 NYC 官方建筑数据的 TUM LoD2 整理版，查看单栋三维白模并进行概念级光伏设计。
 
-## 当前功能
+## 模型来源
 
-- Google Places 纽约地址搜索与五区演示入口
-- Google Maps 卫星正射设计画布
-- 点击地图锁定建筑，显示 Solar API 建筑边界与中心反馈
-- Solar API Building Insights 服务端代理
-- Solar Data Layers DSM 与建筑掩膜服务端解析
-- GlobalBuildingAtlas NYC 都会区 190 万栋本地空间索引
-- 任意点击位置的 GBA/OSM 建筑轮廓与 LoD1 高度匹配
-- GBA/OSM 精确建筑轮廓约束 Google DSM 裁切
-- 2D 选楼到孤立 3D 建筑的连续设计流程
-- 理想化阵列自动生成、屋面退距与行间距控制
-- 三维屋顶点击添加、拖动、旋转和删除组件
-- Google 推荐板位与小型、均衡、最大化方案
-- 组件数量连续调节
-- 候选板点击增删、单板拖动与旋转
-- 已选板组整体旋转
-- 设计、日照、结果三阶段工作流
-- 日期、纽约当地时间和太阳轨迹播放
-- 板面相对直射着色
-- 装机容量、年发电量和碳减排汇总
-- URL 方案分享
-- Google Solar attribution
+使用 [TUM 纽约三维城市项目](https://www.asg.ed.tum.de/en/gis/projects/3d-city-model-of-new-york-city/)发布的 CityGML。保留原有 RoofSurface、WallSurface、GroundSurface、坡度和孔洞，仅进行坐标转换与多边形三角化。运行时无需机器学习或 Google DSM。
 
-## 界面结构
+- 发布版本：TUM 2017；模型反映历史测绘状态，建筑可能已改建。
+- 原坐标系：EPSG:32118，单位米。
+- 匹配：空间索引筛选后，通过底面（缺失时通过屋顶投影）精确包含判断。无匹配时提示无模型。
+- 保留 CityGML ID、NYC BIN 和原高度；界面显示来源和历史版本。
+- 三维入口先展示白模，点击屋顶可添加组件，也可点击“生成整齐阵列”。
+- 当前选楼流程仍依赖 Google Building Insights 的覆盖，用其提供太阳能潜力基准。
 
-- 顶部：地址搜索与设计阶段导航
-- 左侧：选择、铺板、日照和结果工具
-- 中央：卫星屋顶设计画布
-- 右侧：当前方案或选中对象属性
-- 底部：日照模式日期与时间轴
-
-2D 正射画布负责搜索和选择建筑。进入三维设计后，服务端从 Solar Data Layers 下载 DSM 与建筑掩膜，提取目标建筑、清理边缘异常高程并生成带外墙的局部网格。三维阵列属于概念级理想方案，可直接编辑并随日期、时间获得光照反馈。
+原始模型的几何问题可能保留。孤立视图未包含周边建筑、树木和完整屋顶设备。
 
 ## 技术栈
 
-- Next.js App Router
-- React + TypeScript
-- Tailwind CSS
-- Google Maps JavaScript API
-- Google Places API (New)
-- Google Solar API Building Insights
-- Google Solar API Data Layers
-- GlobalBuildingAtlas LoD1（CC BY-NC 4.0）
-- GeoTIFF + Proj4
-- Three.js + React Three Fiber
-- SunCalc
-- Vitest
-- Vercel
+Next.js、React、TypeScript、Tailwind CSS、Google Maps JavaScript API、Places API (New)、Solar Building Insights、Three.js / React Three Fiber、SunCalc、Proj4、fast-xml-parser、Node SQLite、Vitest。
 
-## 本地启动
+## 启动
+
+需要 Node.js 22.13+（已验证 Node 24）。
 
 ```powershell
 npm install
+# 仅首次创建；已有 .env.local 时保留
 Copy-Item .env.example .env.local
-npm test
 npm run dev
 ```
 
-`.env.local`：
+浏览器 Key 启用 Maps JavaScript API 和 Places API (New)，配置网站来源限制。服务端 Key 启用 Solar API。Key 存放于 .env.local，勿提交 Git。
 
-```dotenv
-NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=浏览器地图Key
-GOOGLE_SOLAR_API_KEY=服务端SolarKey
-```
+## 一次性准备模型
 
-浏览器 Key 启用 Places API (New) 和 Maps JavaScript API，并设置 HTTP Referer 限制。服务端 Key 只启用 Solar API。
+下载 [官方 CityGML ZIP](https://www.3dcitydb.net/3dcitydb/fileadmin/public/datasets/NYC/NYC_buildings_CityGML_LoD2/NYC_Buildings_LoD2_CityGML.zip)，放入 data/raw/nyc-tum/。
 
-## 构建 GlobalBuildingAtlas NYC 索引
-
-将官方 `w075_n45_w070_n40` 分块的三个原始文件放到 `data/raw/gba/`：
-
-- `w075_n45_w070_n40.odbl.geojson`
-- `w075_n45_w070_n40.part2.geojson`
-- `w075_n45_w070_n40.lod1.json`
-
-然后运行：
+压缩包约 2.47 GB，解压文本约 31.8 GB。流式索引无需保存解压文本。Windows 安装 Python 3 后执行：
 
 ```powershell
-npm run data:build-gba-nyc
+python scripts/index-nyc-citygml.py --archive data/raw/nyc-tum/NYC_Buildings_LoD2_CityGML.zip --output data/processed/nyc-citygml.sqlite --sevenzip node_modules/7zip-bin/win/x64/7za.exe
 ```
 
-脚本以流式方式解析约 8 GB 原始数据，裁剪到纽约都会区范围，并生成 `data/processed/gba-nyc.sqlite`。原始数据与生成数据库都已排除在 Git 版本管理之外。若数据库放在其他位置，可设置服务端环境变量 `GBA_NYC_DB_PATH`。
+脚本保存压缩的原始单栋 CityGML 和空间索引，结束后标记完整。已有输出不会覆盖。其他系统指定本机支持 Deflate64 的 7-Zip 路径。
 
-## 操作方法
+默认数据库为 data/processed/nyc-citygml.sqlite；服务端环境变量 NYC_TUM_DB_PATH 可指定完整路径。原始数据及数据库排除在 Git 外。旧 GBA 数据与脚本保留供历史版本使用，当前三维入口不调用它们。
 
-1. 搜索纽约地址、选择演示建筑，或点击卫星地图中的屋顶。
-2. 确认建筑边界后，点击“进入孤立3D设计”。
-3. 等待 DSM 屋顶模型生成，调整阵列方位、倾角、屋面退距及行间距。
-4. 点击“生成整齐阵列”，也可点击屋顶添加单块组件。
-5. 拖动蓝色组件，或在右侧旋转和删除单块组件。
-6. 进入日照模式，选择日期并拖动时间轴。
-7. 在结果页查看系统规模、年发电基准和减碳基准。
+## 分享与部署
 
-## 数据与计算口径
+部署至带持久化磁盘的 Node.js 服务，将数据库放到服务器并配置 NYC_TUM_DB_PATH。访客通过网站链接浏览，按需接收单栋几何，无需下载全纽约数据。数据库无需暴露为公共文件。
 
-- `yearlyEnergyDcKwh` 来自 Google Solar API。
-- 交流年发电量采用 0.85 DC→AC 折减。
-- 碳减排采用 Solar API 返回的当地电网排放因子。
-- 当前直射只表达太阳方向与板面法线的夹角关系。
-- 自定义移动或旋转后，年发电量仍显示 Google 原推荐板位基准。
+常规无服务器函数的打包和临时磁盘限制不适合直接携带完整本地索引。部署时配置正式域名的浏览器 Key 来源限制及服务端环境变量。保留 NYC Open Data / TUM 来源说明，公开使用遵循 TUM 页面链接的 NYC 原始数据条款。
 
-## 数据局限
+## 光伏与日照口径
 
-- Solar API 覆盖和影像质量因建筑而异。
-- Google 推荐布局默认采用 400 W 组件并与屋顶齐平。
-- Building Insights 不提供自定义布局重新计算后的年发电量。
-- 当前日照颜色未包含云量、树木和周边建筑遮挡。
-- DSM 网格和自动阵列用于概念设计，未包含消防通道、结构承载、设备避让和工程级遮阴。
-- GBA 高度来自机器学习估计，可能与现场高度存在明显差异。
-- 本地索引覆盖纽约都会区边界框，建筑轮廓包含 ODbL 与 CC BY-NC 4.0 两类来源；公开或商业部署前需要分别核对数据许可。
-- 生成的 SQLite 数据库约 1.25 GB，常规无服务器部署无法直接随应用打包，需要独立持久化存储或托管空间数据库。
+- 三维阵列用于概念交互；自动铺设仍需人工复核边缘、通道、障碍与支架。
+- 年发电基准来自 Google 原推荐配置；自定义布局不会触发工程级重算。
+- 交流年发电量采用 0.85 DC→AC 假设，减碳使用 Google 返回的当地电网因子。
+- 日期时间控制太阳方向；当前模拟未包含天气及周边完整遮挡。
 
 ## 验证
 
-```bash
+```powershell
 npm test
 npm run lint
 npm run build
+# 可选：完整数据库实际建筑验证
+$env:NYC_TEST_DB = (Resolve-Path data/processed/nyc-citygml.sqlite).Path
+npx vitest run src/lib/nyc/index.integration.test.ts
 ```
 
-## 版本管理
-
-- `main` 保留已发布实验版本。
-- OpenSolar 风格重构位于 `feat/opensolar-workflow`。
-- 当前孤立三维屋顶设计器版本为 `v0.6.0`。
-
-## 官方来源
-
-- [Google Solar API methodology](https://developers.google.com/maps/documentation/solar/methodology)
-- [Google Building Insights](https://developers.google.com/maps/documentation/solar/building-insights)
-- [Google Solar Potential demo](https://github.com/googlemaps-samples/js-solar-potential)
-- [OpenSolar Auto Design](https://www.opensolar.com/auto-design/)
-- [GlobalBuildingAtlas repository](https://github.com/zhu-xlab/GlobalBuildingAtlas)
-- [GlobalBuildingAtlas LoD1 dataset](https://huggingface.co/datasets/zhu-xlab/GBA.LoD1)
-
-Source: Includes solar data from Google.
+开发分支：feat/opensolar-workflow。Source: NYC Open Data / TUM; Includes solar data from Google.

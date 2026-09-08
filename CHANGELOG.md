@@ -4,6 +4,13 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Load original NYC / TUM LoD2 CityGML roof and wall surfaces from a local spatial index.
+- Match exact footprints and retain NYC BIN; no GBA or DSM fallback in the 3D route.
+- Preserve polygon holes and heights; frame tall buildings and show bare models before manual placement.
+- Document historical source and persistent-storage deployment.
+
 ## [0.6.1] - 2026-08-28
 
 ### Changed

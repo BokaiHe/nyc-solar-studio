@@ -21,7 +21,7 @@ type RoofDesigner3DProps = {
   onPanelCountChange?: (count: number) => void;
 };
 
-function RoofScene({ model, panelWidthMeters, panelHeightMeters, sun, panels, selectedId, onRoofClick, onRoofMove, onRoofRelease, onSelectPanel, onStartDrag, onReady, roofRef }: RoofDesigner3DProps & {
+function RoofScene({ model, panelWidthMeters, panelHeightMeters, sun, panels, selectedId, onRoofClick, onRoofMove, onRoofRelease, onSelectPanel, onStartDrag, roofRef }: RoofDesigner3DProps & {
   panels: PlacedPanel[];
   selectedId: number | null;
   onRoofClick: (event: ThreeEvent<MouseEvent>) => void;
@@ -29,7 +29,6 @@ function RoofScene({ model, panelWidthMeters, panelHeightMeters, sun, panels, se
   onRoofRelease: () => void;
   onSelectPanel: (id: number) => void;
   onStartDrag: (id: number) => void;
-  onReady: () => void;
   roofRef: React.RefObject<THREE.Mesh | null>;
 }) {
   const geometry = useMemo(() => {
@@ -55,8 +54,7 @@ function RoofScene({ model, panelWidthMeters, panelHeightMeters, sun, panels, se
     return result;
   }, [model.deckIndices, model.deckPositions]);
   useEffect(() => () => { geometry.dispose(); wallGeometry.dispose(); deckGeometry.dispose(); }, [deckGeometry, geometry, wallGeometry]);
-  const maxDimension = Math.max(model.widthMeters, model.depthMeters);
-  useEffect(() => onReady(), [onReady]);
+  const maxDimension = Math.max(model.widthMeters, model.depthMeters, model.modelHeightMeters ?? 0);
   const roofTop = useMemo(() => {
     let top = 0;
     for (let index = 1; index < model.positions.length; index += 3) top = Math.max(top, model.positions[index]);
@@ -73,9 +71,9 @@ function RoofScene({ model, panelWidthMeters, panelHeightMeters, sun, panels, se
     <>
       <color attach="background" args={['#e8edf3']} />
       <ambientLight intensity={0.85} />
-      <directionalLight position={lightPosition} intensity={sun?.daylight ? 2.1 : 0.25} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-camera-left={-maxDimension} shadow-camera-right={maxDimension} shadow-camera-top={maxDimension} shadow-camera-bottom={-maxDimension} />
-      <PerspectiveCamera makeDefault position={[maxDimension * 0.9, maxDimension * 0.8, maxDimension * 1.05]} fov={40} near={0.1} far={maxDimension * 8} />
-      <OrbitControls makeDefault target={[0, roofTop * 0.5, 0]} minDistance={maxDimension * 0.25} maxDistance={maxDimension * 2.5} maxPolarAngle={Math.PI * 0.49} />
+      <directionalLight position={lightPosition} intensity={sun?.daylight ? 2.1 : 0.25} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-camera-left={-maxDimension} shadow-camera-right={maxDimension} shadow-camera-top={maxDimension} shadow-camera-bottom={-maxDimension} shadow-camera-far={maxDimension * 6} shadow-normalBias={0.15} shadow-bias={-0.0001} />
+      <PerspectiveCamera makeDefault position={[maxDimension * 1.6, roofTop + maxDimension * 1.2, maxDimension * 1.8]} fov={40} near={0.1} far={maxDimension * 8} />
+      <OrbitControls makeDefault target={[0, roofTop * 0.5, 0]} minDistance={maxDimension * 0.25} maxDistance={maxDimension * 5} maxPolarAngle={Math.PI * 0.49} />
       <mesh ref={roofRef} geometry={geometry} castShadow receiveShadow onClick={onRoofClick} onPointerMove={onRoofMove} onPointerUp={onRoofRelease}>
         <meshStandardMaterial color="#e2e8f0" roughness={0.78} metalness={0.02} side={THREE.DoubleSide} flatShading />
       </mesh>
@@ -104,9 +102,7 @@ export function RoofDesigner3D({ model, panelWidthMeters, panelHeightMeters, sun
   const [orientationDegrees, setOrientationDegrees] = useState(180);
   const [setbackMeters, setSetbackMeters] = useState(1.2);
   const [rowSpacingMeters, setRowSpacingMeters] = useState(0.8);
-  const [sceneReady, setSceneReady] = useState(false);
   const nextIdRef = useRef(1);
-  const didAutoLayoutRef = useRef(false);
   const roofRef = useRef<THREE.Mesh | null>(null);
 
   useEffect(() => onPanelCountChange?.(panels.length), [onPanelCountChange, panels.length]);
@@ -173,16 +169,6 @@ export function RoofDesigner3D({ model, panelWidthMeters, panelHeightMeters, sun
     setSelectedId(null);
   }, [model.depthMeters, model.widthMeters, orientationDegrees, panelHeightMeters, panelWidthMeters, rowSpacingMeters, setbackMeters, tiltDegrees]);
 
-  useEffect(() => {
-    if (!sceneReady || didAutoLayoutRef.current) return;
-    const timeout = window.setTimeout(() => {
-      if (!roofRef.current) return;
-      didAutoLayoutRef.current = true;
-      autoLayout();
-    }, 350);
-    return () => window.clearTimeout(timeout);
-  }, [autoLayout, sceneReady]);
-
   const updateSelected = useCallback((patch: Partial<PlacedPanel>) => {
     if (selectedId === null) return;
     setPanels((current) => current.map((panel) => panel.id === selectedId ? { ...panel, ...patch } : panel));
@@ -215,7 +201,6 @@ export function RoofDesigner3D({ model, panelWidthMeters, panelHeightMeters, sun
           onRoofRelease={() => setDraggingId(null)}
           onSelectPanel={setSelectedId}
           onStartDrag={(id) => { setSelectedId(id); setDraggingId(id); }}
-          onReady={() => setSceneReady(true)}
         />
       </Canvas>
 
@@ -223,6 +208,14 @@ export function RoofDesigner3D({ model, panelWidthMeters, panelHeightMeters, sun
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-600">理想化3D设计</p>
         <h2 className="mt-1 text-lg font-semibold">{panels.length} 块组件</h2>
         <p className="mt-2 text-xs leading-5 text-slate-500">点击屋顶添加，拖动蓝色组件调整位置。概念级方案需工程复核。</p>
+        {model.nycBuildingId && (
+          <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50 p-3 text-xs leading-5 text-slate-600">
+            <p className="font-semibold text-sky-700">纽约三维建筑 · LoD2</p>
+            <p>{model.modelAddress || `BIN ${model.nycBin}`}</p>
+            <p>模型高度 {model.modelHeightMeters?.toFixed(1)} m · TUM {model.modelRelease} 版</p>
+            <p className="text-[10px] text-slate-500">来源：NYC Open Data / TUM。历史模型，保留原始屋顶形状。</p>
+          </div>
+        )}
         {model.gbaBuildingId && (
           <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50 p-3 text-xs leading-5 text-slate-600">
             <p className="font-semibold text-sky-700">GlobalBuildingAtlas 已匹配</p>
