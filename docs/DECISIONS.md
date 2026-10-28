@@ -35,3 +35,11 @@ A future 3D preview must derive its roof mesh from Solar Data Layers DSM and bui
 ## ADR-009 — Local 3D uses NYC / TUM LoD2
 
 Supersedes ADR-008. The 3D designer renders the selected building's original TUM LoD2 CityGML surfaces from a local SQLite index. Solar DSM reconstruction and GlobalBuildingAtlas LoD1 extrusion are removed from the codebase.
+
+## ADR-010 — Single 3D design surface
+
+Supersedes ADR-003, ADR-004, ADR-006 and ADR-007. The satellite map is used only to select a building; panels are designed exclusively on the NYC / TUM LoD2 roof in 3D. Google Building Insights is optional context and no longer gates the workflow. Design state lives in one reducer so results, sharing and undo read the same source.
+
+## ADR-011 — Face-based layout with self-shading filter
+
+Automatic layout works per planar roof face in face-local coordinates: a 0.2 m raster with setbacks by distance transform, a building-aligned grid chosen from 36 offsets, and annual beam-exposure scoring by ray casting against the building's own roof and walls. A position is kept when it reaches 80% of the best position's exposure, following the common 80% TSRF rule. Neighboring buildings and trees are not modeled, so real shading can be worse.

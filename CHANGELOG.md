@@ -6,6 +6,16 @@ All notable changes will be documented in this file.
 
 ### Changed
 
+- Restructure the app into three steps — select building, 3D design, results — with one step navigation and a light card UI.
+- Remove the 2D satellite panel designer; the map now only picks buildings, and the 3D LoD2 roof is the single design surface.
+- Load the 3D model without waiting for Google Solar data; Google data is optional context for panel size and energy, and is used to snap street clicks to the nearest building.
+- Keep all design state in one reducer (`src/lib/design/state.ts`) with undo/redo; auto layout and share links move to pure modules in `src/lib/design/`.
+- Add Ctrl+Z / Ctrl+Shift+Z, Delete and Escape shortcuts; dragging a panel no longer orbits the camera or adds a stray panel.
+- Share links now encode only the building and 3D layout (`lat`, `lng`, `bid`, `p3`); older 2D share links are no longer supported.
+- Rewrite automatic panel layout: roof surfaces are grouped into planar faces, rasterized with setbacks from real edges and from higher roof parts, and filled with a grid aligned to the building axis. Flat faces get tilted racks; pitched faces get flush panels along the slope.
+- Score every candidate position by annual sun exposure with self-shading from the building; positions below 80% of the best exposure (shaded podiums, north slopes) are skipped unless the user includes them. The 320-panel scan cap is gone; an optional limit keeps the best-exposed panels.
+- Frame the 3D camera on the roof instead of the middle of tall buildings.
+
 - Load original NYC / TUM LoD2 CityGML roof and wall surfaces from a local spatial index.
 - Match exact footprints and retain NYC BIN; no GBA or DSM fallback in the 3D route.
 - Preserve polygon holes and heights; frame tall buildings and show bare models before manual placement.

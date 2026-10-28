@@ -3,10 +3,6 @@ export type LatLng = {
   longitude: number;
 };
 
-export type LatLngAltitude = LatLng & {
-  altitude: number;
-};
-
 export type DateValue = {
   year: number;
   month: number;
@@ -52,30 +48,16 @@ export type BuildingInsights = {
   solarPotential: SolarPotential;
 };
 
-export type RenderPanel = {
-  index: number;
-  vertices: LatLngAltitude[];
-  center: LatLng;
-  segmentIndex: number;
-  roofPitchDegrees: number;
-  roofAzimuthDegrees: number;
-  rotationOffsetDegrees: number;
-  yearlyEnergyDcKwh: number;
-};
-
-export type PanelOverride = {
-  center: LatLng;
-  rotationOffsetDegrees: number;
-};
-
-// A panel placed in the isolated 3D scene. Position is in model-local meters
-// (x east, y up, z south); azimuth is the compass direction the panel faces.
+// A panel placed in the isolated 3D scene. Position is the panel center in
+// model-local meters (x east, y up, z south); azimuth is the compass direction
+// the panel faces. Rack panels stand on posts; flush panels lie on a pitched roof.
 export type ConceptPanel = {
   id: number;
   position: [number, number, number];
   azimuthDegrees: number;
   tiltDegrees: number;
   landscape: boolean;
+  mount: 'rack' | 'flush';
 };
 
 export type SunSnapshot = {
@@ -86,25 +68,15 @@ export type SunSnapshot = {
   daylight: boolean;
 };
 
-export type CameraState = {
-  heading: number;
-  tilt: number;
-  range: number;
-};
-
 export type RoofModelData = {
   positions: number[];
   indices: number[];
   wallPositions: number[];
   wallIndices: number[];
-  deckPositions: number[];
-  deckIndices: number[];
   widthMeters: number;
   depthMeters: number;
   baseElevationMeters: number;
   center: LatLng;
-  imageryQuality: string;
-  imageryDate?: DateValue;
   buildingSource: 'NYC_TUM_LOD2';
   nycBuildingId?: string;
   nycBin?: string;

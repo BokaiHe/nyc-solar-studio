@@ -80,9 +80,9 @@ export function buildNycModel(building: CityBuilding): RoofModelData {
   }
   if (!indices.length) throw new Error('NYC building has no usable roof surfaces');
   return {
-    positions, indices, wallPositions, wallIndices, deckPositions: [], deckIndices: [],
+    positions, indices, wallPositions, wallIndices,
     widthMeters: maxX - minX, depthMeters: maxZ - minZ,
-    baseElevationMeters: base, center: { latitude, longitude }, imageryQuality: 'NYC_LOD2',
+    baseElevationMeters: base, center: { latitude, longitude },
     buildingSource: 'NYC_TUM_LOD2', nycBuildingId: building.id, nycBin: building.bin,
     modelHeightMeters: building.upper[2] - base, modelAddress: building.address, modelRelease: '2017',
   };
