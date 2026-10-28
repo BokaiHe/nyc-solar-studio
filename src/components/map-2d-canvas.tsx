@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { loadGoogleMaps } from '@/lib/google-maps-loader';
+import { useI18n } from '@/lib/i18n';
 import type { CameraState, LatLng, RenderPanel } from '@/lib/solar/types';
 
 export type MapLocation = { latitude: number; longitude: number };
@@ -66,6 +67,7 @@ export const Map2DCanvas = forwardRef<MapCanvasHandle, Map2DCanvasProps>(functio
   },
   ref,
 ) {
+  const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const polygonsRef = useRef<google.maps.Polygon[]>([]);
@@ -212,10 +214,10 @@ export const Map2DCanvas = forwardRef<MapCanvasHandle, Map2DCanvasProps>(functio
 
   return (
     <>
-      <div ref={hostRef} className="absolute inset-0 bg-slate-900" aria-label="屋顶卫星设计地图" />
-      {!ready && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950 text-sm text-slate-300">正在加载卫星地图…</div>}
+      <div ref={hostRef} className="absolute inset-0 bg-slate-900" aria-label={t.map.label} />
+      {!ready && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950 text-sm text-slate-300">{t.map.loading}</div>}
       <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-slate-950/75 px-3 py-1.5 text-[11px] text-white/80 backdrop-blur-md">
-        滚轮缩放 · 按住拖动地图 · 点击屋顶开始
+        {t.map.hint}
       </div>
     </>
   );

@@ -68,6 +68,16 @@ export type PanelOverride = {
   rotationOffsetDegrees: number;
 };
 
+// A panel placed in the isolated 3D scene. Position is in model-local meters
+// (x east, y up, z south); azimuth is the compass direction the panel faces.
+export type ConceptPanel = {
+  id: number;
+  position: [number, number, number];
+  azimuthDegrees: number;
+  tiltDegrees: number;
+  landscape: boolean;
+};
+
 export type SunSnapshot = {
   azimuthDegrees: number;
   altitudeDegrees: number;

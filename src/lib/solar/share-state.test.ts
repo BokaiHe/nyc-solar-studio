@@ -35,6 +35,31 @@ describe('shared design state', () => {
     expect([...selected]).toEqual([0, 2, 3, 6]);
   });
 
+  it('round-trips a 3D concept layout at centimeter precision', () => {
+    const withConcept: SharedDesign = {
+      ...design,
+      concept: {
+        buildingId: 'gml_ABC123',
+        panels: [
+          { id: 1, position: [1.25, 12.4, -3.07], azimuthDegrees: 180, tiltDegrees: 10, landscape: false },
+          { id: 2, position: [-4, 12.41, 2.5], azimuthDegrees: 95, tiltDegrees: 0, landscape: true },
+        ],
+      },
+    };
+    const path = encodeSharedDesign(withConcept);
+
+    expect(path).toContain('view=3d');
+    expect(parseSharedDesign(path.split('?')[1])).toEqual(withConcept);
+  });
+
+  it('skips malformed 3D panels and ignores layouts without a building id', () => {
+    const base = encodeSharedDesign(design).split('?')[1];
+
+    expect(parseSharedDesign(`${base}&view=3d&bid=b1&p3=100_0_0_180_10_0*bad*1_2_3_4_95_0`)?.concept?.panels)
+      .toHaveLength(1);
+    expect(parseSharedDesign(`${base}&view=3d&p3=100_0_0_180_10_0`)?.concept).toBeUndefined();
+  });
+
   it('rejects malformed or internally inconsistent links', () => {
     expect(parseSharedDesign('lat=x&lng=-74')).toBeNull();
     expect(

@@ -1,15 +1,18 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { I18nProvider } from '@/lib/i18n';
 
 export const metadata: Metadata = {
   title: 'NYC Solar Studio',
-  description: '在纽约卫星屋顶上设计光伏方案并分析太阳能潜力。',
+  description: 'Design rooftop solar on NYC satellite imagery and estimate its potential.',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN">
-      <body>{children}</body>
+    <html lang="en">
+      <body>
+        <I18nProvider>{children}</I18nProvider>
+      </body>
     </html>
   );
 }

@@ -10,6 +10,15 @@ All notable changes will be documented in this file.
 - Match exact footprints and retain NYC BIN; no GBA or DSM fallback in the 3D route.
 - Preserve polygon holes and heights; frame tall buildings and show bare models before manual placement.
 - Document historical source and persistent-storage deployment.
+- Keep 3D panel layouts when switching between 2D and 3D; results, direct-light share and carbon now follow the 3D layout.
+- Share links can carry the 3D layout (`view=3d`, `bid`, `p3`) and reopen it directly in the 3D designer.
+- 3D panels use the BESS-Twin module style: navy glass, cell lines, a sunlight-driven glow and rack posts.
+- English interface by default, with a header toggle to Chinese; the choice is remembered in the browser.
+
+### Fixed
+
+- 3D panels now tilt toward their chosen azimuth instead of always facing south.
+- 3D designer controls no longer overlap the sun and results panels.
 
 ### Removed
 

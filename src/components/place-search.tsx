@@ -12,17 +12,28 @@ export type SelectedPlace = {
 
 type PlaceSearchProps = {
   apiKey: string;
+  placeholder: string;
+  fallbackLabel: string;
   disabled?: boolean;
   onSelect: (place: SelectedPlace) => void;
 };
 
-export function PlaceSearch({ apiKey, disabled, onSelect }: PlaceSearchProps) {
+export function PlaceSearch({ apiKey, placeholder, fallbackLabel, disabled, onSelect }: PlaceSearchProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const onSelectRef = useRef(onSelect);
+  const fallbackLabelRef = useRef(fallbackLabel);
+  const placeholderRef = useRef(placeholder);
+  const autocompleteRef = useRef<google.maps.places.PlaceAutocompleteElement | null>(null);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
-  }, [onSelect]);
+    fallbackLabelRef.current = fallbackLabel;
+  }, [fallbackLabel, onSelect]);
+
+  useEffect(() => {
+    placeholderRef.current = placeholder;
+    if (autocompleteRef.current) autocompleteRef.current.placeholder = placeholder;
+  }, [placeholder]);
 
   useEffect(() => {
     let disposed = false;
@@ -38,7 +49,8 @@ export function PlaceSearch({ apiKey, disabled, onSelect }: PlaceSearchProps) {
         includedRegionCodes: ['us'],
         locationRestriction: NYC_SEARCH_BOUNDS,
       });
-      autocomplete.placeholder = '搜索纽约地址或建筑';
+      autocomplete.placeholder = placeholderRef.current;
+      autocompleteRef.current = autocomplete;
       autocomplete.style.width = '100%';
       autocomplete.addEventListener(
         'gmp-select',
@@ -49,7 +61,7 @@ export function PlaceSearch({ apiKey, disabled, onSelect }: PlaceSearchProps) {
           });
           if (!place.location) return;
           onSelectRef.current({
-            label: place.formattedAddress ?? place.displayName ?? '纽约建筑',
+            label: place.formattedAddress ?? place.displayName ?? fallbackLabelRef.current,
             latitude: place.location.lat(),
             longitude: place.location.lng(),
           });
@@ -60,6 +72,7 @@ export function PlaceSearch({ apiKey, disabled, onSelect }: PlaceSearchProps) {
 
     return () => {
       disposed = true;
+      autocompleteRef.current = null;
       host?.replaceChildren();
     };
   }, [apiKey]);
