@@ -31,3 +31,7 @@ The v0.4 design workflow uses Google satellite imagery as the primary editing su
 ## ADR-008 — Local 3D requires Solar DSM
 
 A future 3D preview must derive its roof mesh from Solar Data Layers DSM and building mask data. Photorealistic city tiles remain outside the editing workflow because they cannot guarantee geometric alignment with Building Insights panel coordinates.
+
+## ADR-009 — Local 3D uses NYC / TUM LoD2
+
+Supersedes ADR-008. The 3D designer renders the selected building's original TUM LoD2 CityGML surfaces from a local SQLite index. Solar DSM reconstruction and GlobalBuildingAtlas LoD1 extrusion are removed from the codebase.

@@ -7,9 +7,6 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "postinstall": "node scripts/copy-cesium-assets.mjs",
-    "copy:cesium": "node scripts/copy-cesium-assets.mjs",
-    "data:build-gba-nyc": "node scripts/build-gba-nyc.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -20,10 +17,7 @@
   "dependencies": {
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
-    "cesium": "1.144.0",
     "fast-xml-parser": "^5.11.1",
-    "geotiff": "^3.0.5",
-    "geotiff-geokeys-to-proj4": "^2026.8.16",
     "next": "16.3.3",
     "proj4": "^2.21.0",
     "react": "19.2.8",
@@ -43,7 +37,6 @@
     "7zip-bin": "^5.2.0",
     "eslint": "9.39.5",
     "eslint-config-next": "16.3.3",
-    "stream-json": "^1.9.1",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "vitest": "4.1.11"

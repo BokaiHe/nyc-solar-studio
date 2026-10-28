@@ -455,7 +455,7 @@ export function SolarApp() {
     <main className="relative h-screen min-h-[720px] overflow-hidden bg-slate-950 text-white">
       {designSurface === '3d' && state.status === 'ready' && roofModel ? (
         <RoofDesigner3D
-          key={roofModel.nycBuildingId ?? roofModel.gbaBuildingId}
+          key={roofModel.nycBuildingId}
           model={roofModel}
           panelWidthMeters={state.insights?.solarPotential.panelWidthMeters ?? 1.1}
           panelHeightMeters={state.insights?.solarPotential.panelHeightMeters ?? 1.8}

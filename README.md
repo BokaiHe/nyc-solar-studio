@@ -44,7 +44,7 @@ python scripts/index-nyc-citygml.py --archive data/raw/nyc-tum/NYC_Buildings_LoD
 
 脚本保存压缩的原始单栋 CityGML 和空间索引，结束后标记完整。已有输出不会覆盖。其他系统指定本机支持 Deflate64 的 7-Zip 路径。
 
-默认数据库为 data/processed/nyc-citygml.sqlite；服务端环境变量 NYC_TUM_DB_PATH 可指定完整路径。原始数据及数据库排除在 Git 外。旧 GBA 数据与脚本保留供历史版本使用，当前三维入口不调用它们。
+默认数据库为 data/processed/nyc-citygml.sqlite；服务端环境变量 NYC_TUM_DB_PATH 可指定完整路径。原始数据及数据库排除在 Git 外。旧 GBA 预处理脚本已移除，需复现时查看 v0.6.1 标签。
 
 ## 分享与部署
 

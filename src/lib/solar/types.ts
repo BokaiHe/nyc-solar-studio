@@ -95,13 +95,10 @@ export type RoofModelData = {
   center: LatLng;
   imageryQuality: string;
   imageryDate?: DateValue;
-  buildingSource: 'NYC_TUM_LOD2' | 'GLOBAL_BUILDING_ATLAS_LOD1' | 'GLOBAL_BUILDING_ATLAS_HYBRID' | 'GOOGLE_SOLAR_DSM';
+  buildingSource: 'NYC_TUM_LOD2';
   nycBuildingId?: string;
   nycBin?: string;
   modelHeightMeters?: number;
   modelAddress?: string;
   modelRelease?: string;
-  gbaBuildingId?: string;
-  gbaHeightMeters?: number;
-  gbaHeightVariance?: number;
 };

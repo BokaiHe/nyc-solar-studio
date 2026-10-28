@@ -2,7 +2,6 @@ node_modules/
 .next/
 out/
 coverage/
-public/cesium/
 .env
 .env.local
 .env.*.local
@@ -10,3 +9,4 @@ public/cesium/
 .DS_Store
 data/raw/
 data/processed/*.sqlite*
+tsconfig.tsbuildinfo

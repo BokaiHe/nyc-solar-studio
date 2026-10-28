@@ -216,16 +216,6 @@ export function RoofDesigner3D({ model, panelWidthMeters, panelHeightMeters, sun
             <p className="text-[10px] text-slate-500">来源：NYC Open Data / TUM。历史模型，保留原始屋顶形状。</p>
           </div>
         )}
-        {model.gbaBuildingId && (
-          <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50 p-3 text-xs leading-5 text-slate-600">
-            <p className="font-semibold text-sky-700">GlobalBuildingAtlas 已匹配</p>
-            <p>{model.gbaBuildingId} · LoD1 高度 {model.gbaHeightMeters?.toFixed(2)} m</p>
-            <p className="text-[10px] text-slate-400">GBA LoD1: CC BY-NC 4.0 · 轮廓按估算高度直接挤出</p>
-            {(model.gbaHeightVariance ?? 0) >= (model.gbaHeightMeters ?? Infinity) * 0.5 && (
-              <p className="mt-1 font-medium text-amber-600">高度不确定性较高，当前体块仅供交互演示。</p>
-            )}
-          </div>
-        )}
         <div className="mt-4 grid grid-cols-2 gap-3">
           <label className="text-xs text-slate-500">阵列方位
             <input type="number" min="0" max="359" value={orientationDegrees} onChange={(event) => setOrientationDegrees(Number(event.target.value))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />

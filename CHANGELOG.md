@@ -11,6 +11,11 @@ All notable changes will be documented in this file.
 - Preserve polygon holes and heights; frame tall buildings and show bare models before manual placement.
 - Document historical source and persistent-storage deployment.
 
+### Removed
+
+- Unused Cesium 3D canvas, GBA LoD1 lookup and Solar DSM roof reconstruction.
+- `cesium`, `geotiff`, `geotiff-geokeys-to-proj4` and `stream-json` dependencies, the Cesium asset copy step and the GBA index script.
+
 ## [0.6.1] - 2026-08-28
 
 ### Changed
