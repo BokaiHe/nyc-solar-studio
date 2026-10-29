@@ -1,9 +1,11 @@
-import type { ReactNode } from 'react';
+import { useId, useState, type CSSProperties, type ReactNode } from 'react';
 
-export const cardClass = 'pointer-events-auto rounded-3xl border border-slate-200 bg-white/95 text-slate-900 shadow-xl backdrop-blur-xl';
-export const pillClass = 'pointer-events-auto rounded-2xl border border-slate-200 bg-white/95 text-slate-900 shadow-lg backdrop-blur-xl';
-export const primaryButtonClass = 'w-full rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-300';
-export const secondaryButtonClass = 'rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40';
+// Floating surfaces use the translucent materials from globals.css.
+export const cardClass = 'pointer-events-auto material rounded-[22px] text-label';
+export const pillClass = 'pointer-events-auto material-chip rounded-[14px] text-label';
+// Filled and gray ("tinted") buttons; both react on press, not on release.
+export const primaryButtonClass = 'w-full rounded-[12px] bg-accent px-4 py-2.5 text-[15px] font-semibold tracking-[-0.01em] text-white transition active:scale-[0.98] active:bg-accent-pressed disabled:pointer-events-none disabled:opacity-35';
+export const secondaryButtonClass = 'rounded-[10px] bg-fill px-3 py-2 text-[13px] font-medium text-accent transition hover:bg-fill-strong active:scale-[0.97] disabled:pointer-events-none disabled:text-label-tertiary';
 
 // Right-hand card on wide screens; a bottom sheet on narrow ones.
 export function SidePanel({ children }: { children: ReactNode }) {
@@ -14,52 +16,116 @@ export function SidePanel({ children }: { children: ReactNode }) {
   );
 }
 
+// Small secondary heading above a panel title (sentence case, like iOS group headers).
 export function Eyebrow({ children }: { children: ReactNode }) {
-  return <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-700">{children}</p>;
+  return <p className="text-[13px] font-semibold text-label-secondary">{children}</p>;
+}
+
+export function PanelTitle({ children }: { children: ReactNode }) {
+  return <h2 className="text-[22px] font-bold leading-tight tracking-[-0.02em]">{children}</h2>;
+}
+
+export function GroupTitle({ children }: { children: ReactNode }) {
+  return <p className="text-[13px] font-semibold text-label-secondary">{children}</p>;
 }
 
 export function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <p className="text-[11px] text-slate-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold tracking-tight">{value}</p>
-      <p className="mt-1 text-[11px] text-slate-500">{detail}</p>
+    <div className="rounded-[14px] bg-fill p-3">
+      <p className="text-[12px] text-label-secondary">{label}</p>
+      <p className="mt-0.5 text-[20px] font-semibold tabular-nums tracking-[-0.02em]">{value}</p>
+      <p className="mt-0.5 text-[11px] tracking-[0.01em] text-label-secondary">{detail}</p>
     </div>
   );
 }
 
-export function NumberField({ label, value, min, max, step = 1, onChange }: {
+// A slider with a live value on the right. The value is also a borderless
+// field, so an exact number can still be typed.
+export function SliderField({ label, value, min, max, step = 1, unit = '', format, onChange }: {
   label: string;
   value: number;
   min: number;
   max: number;
   step?: number;
+  unit?: string;
+  format?: (value: number) => string;
   onChange: (value: number) => void;
 }) {
+  const id = useId();
+  const [draft, setDraft] = useState<string | null>(null);
+  const clamp = (next: number) => Math.min(max, Math.max(min, next));
+  const fill = `${((clamp(value) - min) / (max - min || 1)) * 100}%`;
+  const shown = format ? format(value) : `${value}${unit}`;
+  const commitDraft = () => {
+    if (draft !== null && draft.trim() !== '' && Number.isFinite(Number(draft))) onChange(clamp(Number(draft)));
+    setDraft(null);
+  };
   return (
-    <label className="text-xs text-slate-500">
-      {label}
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <label htmlFor={id} className="text-[13px] text-label">{label}</label>
+        {draft === null ? (
+          <button type="button" onClick={() => setDraft(String(value))} className="rounded-md px-1 text-[13px] tabular-nums text-label-secondary hover:bg-fill" aria-label={`${label}: ${shown}`}>
+            {shown}
+          </button>
+        ) : (
+          <input
+            autoFocus
+            type="number"
+            min={min}
+            max={max}
+            step={step}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={commitDraft}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commitDraft();
+              if (event.key === 'Escape') setDraft(null);
+            }}
+            className="value-input w-16 rounded-md bg-fill px-1 text-right text-[13px] tabular-nums text-label outline-none"
+          />
+        )}
+      </div>
       <input
-        type="number"
+        id={id}
+        type="range"
         min={min}
         max={max}
         step={step}
-        value={value}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          if (event.target.value !== '' && Number.isFinite(next)) onChange(Math.min(max, Math.max(min, next)));
-        }}
-        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500"
+        value={clamp(value)}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="apple-slider mt-1"
+        style={{ '--fill': fill } as CSSProperties}
       />
-    </label>
+    </div>
   );
 }
 
-export function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+// iOS-style switch on the right of its label, as in a settings list row.
+export function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer items-start gap-2 text-xs leading-5 text-slate-600">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-0.5 h-4 w-4 accent-sky-600" />
-      {label}
-    </label>
+    <div className="flex items-center justify-between gap-3 text-[13px] leading-5 text-label">
+      <span>{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className={`relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors duration-200 ${checked ? 'bg-success' : 'bg-fill-strong'}`}
+      >
+        <span
+          className={`absolute left-[2px] top-[2px] h-[22px] w-[22px] rounded-full bg-white shadow-[0_3px_8px_rgb(0_0_0/0.15),0_1px_1px_rgb(0_0_0/0.16)] transition-transform duration-200 ease-[cubic-bezier(0.3,0.7,0.4,1)] ${checked ? 'translate-x-[18px]' : ''}`}
+        />
+      </button>
+    </div>
   );
+}
+
+// Segmented control segment: a raised white segment marks the current choice
+// on a gray track (the track itself is `bg-fill rounded-[11px] p-[2px]`).
+export function segmentClass(active: boolean) {
+  return `rounded-[9px] px-3 py-1.5 text-[13px] font-medium transition active:scale-[0.97] disabled:pointer-events-none disabled:opacity-35 ${active
+    ? 'bg-white text-label shadow-[0_3px_8px_rgb(0_0_0/0.12),0_1px_1px_rgb(0_0_0/0.04)]'
+    : 'text-label hover:bg-white/50'}`;
 }

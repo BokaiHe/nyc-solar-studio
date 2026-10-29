@@ -43,7 +43,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
 const TOOL_KEYS: Record<string, Tool> = { v: 'select', a: 'add', e: 'erase' };
 // Debounce for live regeneration while settings are edited.
-const LIVE_LAYOUT_DELAY_MS = 250;
+const LIVE_LAYOUT_DELAY_MS = 150;
 
 export function SolarStudio() {
   const { t, lang, setLang } = useI18n();
@@ -256,11 +256,11 @@ export function SolarStudio() {
 
   if (!apiKey) {
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-100 p-6">
+      <main className="grid min-h-screen place-items-center bg-[#e9edf2] p-6">
         <section className={`${cardClass} max-w-lg p-8`}>
-          <p className="text-sm font-semibold text-amber-700">{t.apiKey.title}</p>
-          <h1 className="mt-2 text-2xl font-semibold">NYC Solar Studio</h1>
-          <p className="mt-4 leading-7 text-slate-600">{t.apiKey.before}<code>.env.local</code>{t.apiKey.after}</p>
+          <p className="text-[13px] font-semibold text-warning">{t.apiKey.title}</p>
+          <h1 className="mt-1 text-[28px] font-bold tracking-[-0.02em]">NYC Solar Studio</h1>
+          <p className="mt-3 text-[15px] leading-6 text-label-secondary">{t.apiKey.before}<code>.env.local</code>{t.apiKey.after}</p>
         </section>
       </main>
     );
@@ -271,7 +271,7 @@ export function SolarStudio() {
   const showScene = step !== 'select' && model;
 
   return (
-    <main className="relative h-dvh min-h-[520px] overflow-hidden bg-slate-200 text-slate-900">
+    <main className="relative h-dvh min-h-[520px] overflow-hidden bg-[#e9edf2] text-label">
       {/* The map stays mounted so returning to the select step does not reload it. */}
       <div className={step === 'select' ? '' : 'invisible'}>
         <Map2DCanvas
@@ -301,7 +301,7 @@ export function SolarStudio() {
 
       <div className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-3 md:p-4">
         <header className="flex flex-wrap items-start gap-2">
-          <button type="button" onClick={startOver} className={`${pillClass} grid h-11 w-11 shrink-0 place-items-center text-sm font-black tracking-tight`} aria-label={t.header.home}>
+          <button type="button" onClick={startOver} className={`${pillClass} grid h-11 w-11 shrink-0 place-items-center text-[15px] font-bold tracking-[-0.02em] transition active:scale-95`} aria-label={t.header.home}>
             SR
           </button>
           {/* Its own full-width row on phones; inline on wider screens. */}
@@ -315,20 +315,20 @@ export function SolarStudio() {
             />
           </div>
           <div className="relative">
-            <button type="button" onClick={() => setExamplesOpen((open) => !open)} aria-expanded={examplesOpen} aria-label={t.header.examples} className={`${pillClass} h-11 px-3 text-sm hover:bg-slate-50`}>
+            <button type="button" onClick={() => setExamplesOpen((open) => !open)} aria-expanded={examplesOpen} aria-label={t.header.examples} className={`${pillClass} h-11 px-3 text-[13px] font-medium transition active:scale-[0.97]`}>
               <span className="hidden sm:inline">{t.header.examples} </span>⌄
             </button>
             {examplesOpen && (
-              <div className={`${cardClass} absolute left-0 top-12 z-10 w-56 p-2`}>
+              <div className={`${cardClass} absolute left-0 top-12 z-10 w-56 p-1.5`}>
                 {DEMO_BUILDINGS.map((demo) => (
-                  <button key={demo.id} type="button" onClick={() => void loadBuilding({ latitude: demo.latitude, longitude: demo.longitude }, t.places[demo.id])} className="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-100">
+                  <button key={demo.id} type="button" onClick={() => void loadBuilding({ latitude: demo.latitude, longitude: demo.longitude }, t.places[demo.id])} className="block w-full rounded-[9px] px-3 py-2 text-left text-[13px] transition hover:bg-accent hover:text-white">
                     {t.places[demo.id]}
                   </button>
                 ))}
               </div>
             )}
           </div>
-          <button type="button" onClick={() => setLang(lang === 'en' ? 'zh' : 'en')} aria-label={t.switchLabel} className={`${pillClass} h-11 px-3 text-sm font-semibold hover:bg-slate-50`}>
+          <button type="button" onClick={() => setLang(lang === 'en' ? 'zh' : 'en')} aria-label={t.switchLabel} className={`${pillClass} h-11 px-3 text-[13px] font-semibold transition active:scale-[0.97]`}>
             {t.switchTo}
           </button>
           <div className="ml-auto">
@@ -347,7 +347,7 @@ export function SolarStudio() {
             />
           ) : <span />}
           {mapError && step === 'select' ? (
-            <div className={`${cardClass} h-fit w-full p-5 text-sm text-amber-800 md:w-[340px]`}>{t.map[mapError]}</div>
+            <div className={`${cardClass} h-fit w-full p-5 text-[15px] text-label md:w-[340px]`}>{t.map[mapError]}</div>
           ) : step === 'select' ? (
             <SelectPanel building={building} onStart={() => dispatch({ type: 'set-step', step: 'design' })} />
           ) : step === 'design' ? (
@@ -375,7 +375,7 @@ export function SolarStudio() {
 
         <footer className="flex flex-col items-center gap-2">
           {step === 'select' ? (
-            <p className="rounded-full bg-slate-950/70 px-3 py-1.5 text-[11px] text-white/85 backdrop-blur-md">{t.map.hint}</p>
+            <p className={`${pillClass} px-3 py-1.5 text-[12px] text-label-secondary`}>{t.map.hint}</p>
           ) : (
             <>
               {editing && selectedIds.length > 0 && (
@@ -407,7 +407,7 @@ export function SolarStudio() {
               </div>
             </>
           )}
-          <p className={`hidden self-start text-[10px] md:block ${step === 'select' ? 'text-white/70' : 'text-slate-500'}`}>{t.attribution}</p>
+          <p className={`hidden self-start text-[10px] md:block ${step === 'select' ? 'text-white/80 [text-shadow:0_1px_2px_rgb(0_0_0/0.5)]' : 'text-label-tertiary'}`}>{t.attribution}</p>
         </footer>
       </div>
     </main>

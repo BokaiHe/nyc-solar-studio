@@ -1,9 +1,30 @@
 @import 'tailwindcss';
 
+/* Apple-style tokens: system font with optical sizing, iOS system colors and label grays. */
+@theme {
+  /* SF on Apple devices, Segoe UI on Windows for Latin text; CJK glyphs fall back to PingFang or YaHei. */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI Variable Text', 'Segoe UI', system-ui, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  --color-accent: #007aff;
+  --color-accent-pressed: #0062cc;
+  --color-label: #1d1d1f;
+  --color-label-secondary: rgb(60 60 67 / 0.62);
+  --color-label-tertiary: rgb(60 60 67 / 0.32);
+  --color-fill: rgb(120 120 128 / 0.12);
+  --color-fill-strong: rgb(120 120 128 / 0.2);
+  --color-separator: rgb(60 60 67 / 0.14);
+  --color-destructive: #ff3b30;
+  --color-success: #34c759;
+  --color-warning: #ff9500;
+}
+
 :root {
-  color-scheme: dark;
-  font-family: Arial, Helvetica, sans-serif;
-  background: #020617;
+  color-scheme: light;
+  font-family: var(--font-sans);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--color-label);
+  background: #e9edf2;
 }
 
 * { box-sizing: border-box; }
@@ -11,27 +32,90 @@ html, body { width: 100%; min-height: 100%; margin: 0; }
 button, input, select { font: inherit; }
 gmp-place-autocomplete { color-scheme: light; }
 
-.solar-time-slider {
-  appearance: none;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #1e293b 0%, #334155 18%, #f59e0b 32%, #fde68a 50%, #f59e0b 68%, #334155 82%, #1e293b 100%);
+/* Translucent materials. Large surfaces read thicker: more blur, deeper shadow,
+   and a bright top edge where light catches the glass. */
+.material {
+  background: rgb(255 255 255 / 0.74);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 0.5px solid rgb(255 255 255 / 0.7);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 14px 44px rgb(15 23 42 / 0.16), inset 0 1px 0 rgb(255 255 255 / 0.8);
 }
 
-.solar-time-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  border: 3px solid #fff;
-  border-radius: 999px;
-  background: #fbbf24;
-  box-shadow: 0 2px 10px rgb(0 0 0 / 45%);
+.material-chip {
+  background: rgb(255 255 255 / 0.78);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 0.5px solid rgb(255 255 255 / 0.7);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 4px 16px rgb(15 23 42 / 0.12), inset 0 1px 0 rgb(255 255 255 / 0.8);
 }
 
-.solar-time-slider::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border: 3px solid #fff;
+@media (prefers-reduced-transparency: reduce) {
+  .material, .material-chip { background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+@media (prefers-contrast: more) {
+  .material, .material-chip { background: #fff; border: 1px solid rgb(0 0 0 / 0.45); }
+}
+
+/* Apple-style slider: thin track filled in accent up to the thumb (--fill), white knob. */
+.apple-slider {
+  --fill: 50%;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+}
+.apple-slider:focus-visible { outline: none; }
+.apple-slider::-webkit-slider-runnable-track {
+  height: 4px;
   border-radius: 999px;
-  background: #fbbf24;
-  box-shadow: 0 2px 10px rgb(0 0 0 / 45%);
+  background: linear-gradient(to right, var(--color-accent) var(--fill), var(--color-fill-strong) var(--fill));
+}
+.apple-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--color-accent) var(--fill), var(--color-fill-strong) var(--fill));
+}
+.apple-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -9px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08), 0 3px 8px rgb(0 0 0 / 0.16), 0 1px 1px rgb(0 0 0 / 0.08);
+  transition: transform 120ms ease-out;
+}
+.apple-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08), 0 3px 8px rgb(0 0 0 / 0.16), 0 1px 1px rgb(0 0 0 / 0.08);
+  transition: transform 120ms ease-out;
+}
+/* Feedback on press, not release. */
+.apple-slider:active::-webkit-slider-thumb { transform: scale(1.1); }
+.apple-slider:active::-moz-range-thumb { transform: scale(1.1); }
+.apple-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgb(0 122 255 / 0.3), 0 3px 8px rgb(0 0 0 / 0.16); }
+.apple-slider:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px rgb(0 122 255 / 0.3), 0 3px 8px rgb(0 0 0 / 0.16); }
+
+/* Time of day: night → dawn → noon → dusk → night. */
+.solar-time-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, #334155 0%, #64748b 18%, #ff9500 30%, #ffd60a 50%, #ff9500 70%, #64748b 82%, #334155 100%);
+}
+.solar-time-slider::-moz-range-track {
+  background: linear-gradient(90deg, #334155 0%, #64748b 18%, #ff9500 30%, #ffd60a 50%, #ff9500 70%, #64748b 82%, #334155 100%);
+}
+
+/* Hide number spinners on inline value fields. */
+.value-input::-webkit-outer-spin-button, .value-input::-webkit-inner-spin-button { appearance: none; margin: 0; }
+.value-input { appearance: textfield; -moz-appearance: textfield; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; }
 }

@@ -496,7 +496,7 @@ export function RoofScene3D(props: RoofScene3DProps) {
       </Canvas>
       {marquee && (
         <div
-          className="pointer-events-none absolute border border-sky-500 bg-sky-400/15"
+          className="pointer-events-none absolute rounded-[4px] border border-accent bg-accent/12"
           style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }}
         />
       )}

@@ -14,11 +14,11 @@ export function SelectionBar({ count, onRotate, onToggleOrientation, onSelectRow
   onDeselect: () => void;
 }) {
   const { t } = useI18n();
-  const button = 'rounded-xl px-2.5 py-1.5 text-xs text-slate-700 transition hover:bg-slate-100';
-  const divider = <span className="mx-0.5 h-5 w-px bg-slate-200" />;
+  const button = 'rounded-[9px] px-2.5 py-1.5 text-[13px] font-medium text-accent transition hover:bg-fill active:scale-[0.97]';
+  const divider = <span className="mx-0.5 h-5 w-px bg-separator" />;
   return (
-    <div role="toolbar" aria-label={t.selection.count(count)} className={`${pillClass} flex max-w-full flex-wrap items-center justify-center gap-1 px-2 py-1.5`}>
-      <span className="px-2 text-xs font-semibold text-sky-700">{t.selection.count(count)}</span>
+    <div role="toolbar" aria-label={t.selection.count(count)} className={`${pillClass} flex max-w-full flex-wrap items-center justify-center gap-0.5 px-1.5 py-1`}>
+      <span className="px-2 text-[13px] font-semibold tabular-nums text-label">{t.selection.count(count)}</span>
       {divider}
       <button type="button" className={button} title={t.selection.rotateLeft} aria-label={t.selection.rotateLeft} onClick={() => onRotate(-5)}>↶ 5°</button>
       <button type="button" className={button} title={t.selection.rotateRight} aria-label={t.selection.rotateRight} onClick={() => onRotate(5)}>5° ↷</button>
@@ -28,8 +28,8 @@ export function SelectionBar({ count, onRotate, onToggleOrientation, onSelectRow
       <button type="button" className={button} onClick={onSelectRoof}>{t.selection.roof}</button>
       <button type="button" className={button} title="Ctrl+A" onClick={onSelectAll}>{t.selection.all}</button>
       {divider}
-      <button type="button" className="rounded-xl px-2.5 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50" title="Delete" onClick={onDelete}>{t.selection.delete}</button>
-      <button type="button" className={button} title="Esc" aria-label={t.selection.deselect} onClick={onDeselect}>✕</button>
+      <button type="button" className="rounded-[9px] px-2.5 py-1.5 text-[13px] font-medium text-destructive transition hover:bg-destructive/10 active:scale-[0.97]" title="Delete" onClick={onDelete}>{t.selection.delete}</button>
+      <button type="button" className="grid h-7 w-7 place-items-center rounded-full bg-fill text-[11px] text-label-secondary transition hover:bg-fill-strong active:scale-95" title="Esc" aria-label={t.selection.deselect} onClick={onDeselect}>✕</button>
     </div>
   );
 }

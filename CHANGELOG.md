@@ -20,6 +20,8 @@ All notable changes will be documented in this file.
 - Generate the array automatically on entering design and regenerate it live while settings change, until the layout is edited by hand; then offer to apply new settings instead.
 - Compact design panel with collapsible advanced options, reset / top view buttons, and a bottom-sheet layout on phones.
 - Draw panels with shared materials, a cell texture and instanced rack posts so large roofs stay responsive.
+- Restyle the interface after Apple's design language: system font stack (SF, Segoe UI, PingFang / YaHei), size-specific tracking, translucent materials that respect reduced-transparency and high-contrast settings, iOS system colors, segmented controls and switches.
+- Replace number fields with sliders that show their value live (tap the value to type an exact number), including the electricity rate.
 
 - Load original NYC / TUM LoD2 CityGML roof and wall surfaces from a local spatial index.
 - Match exact footprints and retain NYC BIN; no GBA or DSM fallback in the 3D route.
