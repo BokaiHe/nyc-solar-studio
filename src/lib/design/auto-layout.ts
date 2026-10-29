@@ -1,7 +1,7 @@
 import type { ConceptPanel, NeighborMesh, RoofModelData } from '@/lib/solar/types';
 import { COLUMN_GAP, FLAT_ROOF_DEGREES, FLUSH_ROW_GAP, panelCenter, type PanelSize } from './geometry';
 import { dominantAxisDegrees, extractRoofFaces, planeHeight, type RoofFace, type Vec3 } from './roof-faces';
-import { annualSunSamples, exposure, idealPanelExposure, Occluders, panelNormal, VisibilityCache, type RowShade, type SunSample } from './shading';
+import { annualSunSamples, annualYield, idealPanelYield, Occluders, panelNormal, VisibilityCache, type RowShade, type SunSample } from './shading';
 import type { LayoutParams } from './state';
 
 export type LayoutResult = {
@@ -10,7 +10,8 @@ export type LayoutResult = {
   candidateCount: number;
   // Fits dropped because they fall below the exposure threshold.
   shadedCount: number;
-  // Annual exposure of the kept panels, and of one ideal unshaded panel here.
+  // Annual yield (kWh per kW of capacity) summed over the kept panels, and of
+  // one ideal unshaded panel here. Multiply by panel kW for kWh.
   totalScore: number;
   idealPanelScore: number;
 };
@@ -43,7 +44,7 @@ export function createLayoutContext(
     axisDegrees: faces.length ? dominantAxisDegrees(faces) : null,
     samples,
     visibility: new VisibilityCache(samples, occluders),
-    idealPanelScore: idealPanelExposure(samples),
+    idealPanelScore: idealPanelYield(samples),
     neighborCount: neighbors?.buildingCount ?? 0,
   };
 }
@@ -70,7 +71,7 @@ const BLOCKER_CLEARANCE = 0.3;
 // Grid offsets tried along each axis; the fill with the most panels wins.
 const PHASES = 6;
 // Without "include shaded", keep positions with at least this share of the
-// best position's annual exposure, in the spirit of the common 80% TSRF rule.
+// best position's annual yield, in the spirit of the common 80% TSRF rule.
 // It drops podiums in a tower's shadow and slopes facing away from the sun.
 export const MIN_EXPOSURE_RATIO = 0.8;
 
@@ -296,7 +297,7 @@ function faceCandidates(faces: RoofFace[], index: number, frame: Frame, params: 
 }
 
 // Fill each roof face with a tidy grid aligned to the building, then keep the
-// positions with good annual sun exposure. Shading counts the building itself,
+// positions with a good annual yield. Shading counts the building itself,
 // the row in front and, when provided in the context, surrounding buildings.
 export function autoLayout(
   model: Pick<RoofModelData, 'positions' | 'indices' | 'wallPositions' | 'wallIndices' | 'center'>,
@@ -314,7 +315,7 @@ export function autoLayout(
 
   for (const candidate of candidates) {
     const normal = panelNormal(candidate.azimuthDegrees, candidate.tiltDegrees);
-    candidate.score = exposure(normal, candidate.azimuthDegrees, candidate.tiltDegrees, visibility.at(candidate.position), samples, candidate.row);
+    candidate.score = annualYield(normal, candidate.azimuthDegrees, candidate.tiltDegrees, visibility.at(candidate.position), samples, candidate.row);
   }
 
   const bestScore = range([0, ...candidates.map((candidate) => candidate.score)])[1];

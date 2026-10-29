@@ -1,5 +1,3 @@
-export const DC_TO_AC_DERATE = 0.85;
-
 // Editable UI default. Replace after final Con Edison tariff verification.
 export const DEFAULT_ELECTRICITY_RATE_USD_PER_KWH = 0.338;
 

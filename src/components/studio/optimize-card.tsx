@@ -72,7 +72,7 @@ export function OptimizeCard({ objective, onObjectiveChange, state, panelWatts, 
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-[13px] font-semibold">{t.optimize.option(option.params.tiltDegrees, option.params.rowSpacingMeters.toFixed(1))}</p>
-                      <p className="mt-0.5 text-[12px] tabular-nums text-label-secondary">{t.optimize.stats(option.panels.length, ((option.panels.length * panelWatts) / 1000).toFixed(1))}</p>
+                      <p className="mt-0.5 text-[12px] tabular-nums text-label-secondary">{t.optimize.stats(option.panels.length, ((option.panels.length * panelWatts) / 1000).toFixed(1), Math.round((option.result.totalScore * panelWatts) / 1000))}</p>
                     </div>
                     <button
                       type="button"

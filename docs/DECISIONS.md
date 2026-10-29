@@ -47,3 +47,11 @@ Automatic layout works per planar roof face in face-local coordinates: a 0.2 m r
 ## ADR-012 — Surrounding buildings as occluders
 
 Neighbor geometry is served separately (`/api/solar/neighbors`) so the selected model appears without waiting. The server keeps only buildings within 200 m whose top rises above the roof by more than the 3° minimum sun altitude allows for their distance, drops faces below the roof, and caches recent results. Rays test each building's bounding box before its triangles. The first automatic layout waits for the neighbors so it is scored once.
+
+## ADR-013 — Own hourly energy model
+
+Annual energy is computed per panel from a month × UTC-hour table of the PVGIS-ERA5 typical meteorological year for New York (2005–2023), shipped as source code so the app has no runtime weather dependency. Plane-of-array light combines beam (with the building, neighbor and row shading already used for layout), isotropic diffuse scaled by the panel's sky view, and roof-reflected light (albedo 0.2); ASHRAE incidence losses, a cell-temperature correction, PVWatts' default 14% system losses and 96% inverter efficiency follow. An unshaded panel at the best tilt yields about 1,360 kWh/kWp, a few percent above NREL PVWatts for New York because ERA5 reads slightly sunnier. Google Solar data is now used only for panel size, wattage and the grid carbon factor.
+
+## ADR-014 — Map footprint index
+
+Footprints for all buildings are extracted once into `data/processed/nyc-footprints.sqlite` (WGS84 rings simplified to 0.2 m, height, address, R-tree on bounds) rather than parsed on demand, so a street-level map view returns in about 0.1 s. The main CityGML index stays read-only. Picking an outline loads the model by gml id; clicking elsewhere still falls back to the point lookup.

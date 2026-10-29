@@ -44,7 +44,13 @@ python scripts/index-nyc-citygml.py --archive data/raw/nyc-tum/NYC_Buildings_LoD
 
 脚本保存压缩的原始单栋 CityGML 和空间索引，结束后标记完整。已有输出不会覆盖。其他系统指定本机支持 Deflate64 的 7-Zip 路径。
 
-默认数据库为 data/processed/nyc-citygml.sqlite；服务端环境变量 NYC_TUM_DB_PATH 可指定完整路径。原始数据及数据库排除在 Git 外。旧 GBA 预处理脚本已移除，需复现时查看 v0.6.1 标签。
+之后生成地图上的建筑轮廓索引（约 2 分钟，约 100 MB），选楼时放大地图即可看到所有有三维模型的建筑：
+
+```powershell
+npm run data:build-footprints
+```
+
+默认数据库为 data/processed/nyc-citygml.sqlite；轮廓索引为 data/processed/nyc-footprints.sqlite（可用 NYC_FOOTPRINTS_DB_PATH 指定）。缺少轮廓索引时地图仍可点击选楼，只是不显示轮廓。服务端环境变量 NYC_TUM_DB_PATH 可指定完整路径。原始数据及数据库排除在 Git 外。旧 GBA 预处理脚本已移除，需复现时查看 v0.6.1 标签。
 
 ## 分享与部署
 
@@ -55,8 +61,7 @@ python scripts/index-nyc-citygml.py --archive data/raw/nyc-tum/NYC_Buildings_LoD
 ## 光伏与日照口径
 
 - 三维阵列用于概念交互；自动铺设仍需人工复核边缘、通道、障碍与支架。
-- 年发电基准来自 Google 原推荐配置；自定义布局不会触发工程级重算。
-- 交流年发电量采用 0.85 DC→AC 假设，减碳使用 Google 返回的当地电网因子。
+- 年发电量按纽约 PVGIS-ERA5 典型气象年逐时计算，计入遮挡、入射角与温度损失、14% 系统损失和 96% 逆变器效率；手动编辑的布局同样逐块计算。减碳使用 Google 返回的当地电网因子。
 - 日期时间控制太阳方向；铺板与寻优计入建筑自遮挡、排间遮挡和 200 m 内足够高的周边建筑遮挡，未包含天气、树木与屋顶设备。
 
 ## 验证

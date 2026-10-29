@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Map2DCanvas } from '@/components/map-2d-canvas';
+import { Map2DCanvas, type FootprintInfo } from '@/components/map-2d-canvas';
 import { PlaceSearch } from '@/components/place-search';
 import { RoofScene3D, type ViewCommand } from '@/components/roof-scene-3d';
 import { autoLayout, createLayoutContext, rackAzimuth, type LayoutResult } from '@/lib/design/auto-layout';
+import { estimateDesignEnergy } from '@/lib/design/energy';
 import { DEFAULT_PANEL_SIZE, DEFAULT_PANEL_WATTS, FLAT_ROOF_DEGREES, panelCenter } from '@/lib/design/geometry';
 import { collides, rowPanelIds, similarPanelIds, snapToArray } from '@/lib/design/panel-ops';
 import { facingAzimuth, type Vec3 } from '@/lib/design/roof-faces';
@@ -63,6 +64,8 @@ export function SolarStudio() {
   const [layoutResult, setLayoutResult] = useState<Omit<LayoutResult, 'panels'> | null>(null);
   const [view, setView] = useState<ViewCommand>({ kind: 'reset', nonce: 0 });
   const [showNeighbors, setShowNeighbors] = useState(true);
+  const [hoveredBuilding, setHoveredBuilding] = useState<FootprintInfo | null>(null);
+  const [outlinesVisible, setOutlinesVisible] = useState(false);
   const [objective, setObjective] = useState<Objective>('max-total');
   const [optimizer, setOptimizer] = useState<(OptimizerState & { base?: LayoutParams })>({ status: 'idle' });
   const workerRef = useRef<Worker | null>(null);
@@ -72,7 +75,8 @@ export function SolarStudio() {
   const shared = useMemo(() => parseSharedDesign(searchParams.toString()), [searchParams]);
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
-  const loadBuilding = useCallback(async (location: LatLng, label: string, sharedDesign?: SharedDesign) => {
+  // `buildingId` comes from a clicked footprint outline and skips the point lookup.
+  const loadBuilding = useCallback(async (location: LatLng, label: string, sharedDesign?: SharedDesign, buildingId?: string) => {
     const request = ++requestRef.current;
     dispatch({ type: 'select-building', location, label });
     setLayoutResult(null);
@@ -83,7 +87,7 @@ export function SolarStudio() {
     if (!sharedDesign && window.location.pathname !== '/') window.history.replaceState(null, '', '/');
     const query = `lat=${location.latitude}&lng=${location.longitude}`;
     const [direct, solar] = await Promise.allSettled([
-      fetchJson<RoofModelData>(`/api/solar/roof-model?${query}`),
+      fetchJson<RoofModelData>(buildingId ? `/api/solar/roof-model?id=${encodeURIComponent(buildingId)}` : `/api/solar/roof-model?${query}`),
       fetchJson<BuildingInsights>(`/api/solar?${query}`),
     ]);
     let model = direct;
@@ -110,13 +114,13 @@ export function SolarStudio() {
       notice: sharedDesign && !sameBuilding ? 'sharedModelChanged' : null,
     });
     // Surrounding buildings arrive separately so the model shows without waiting.
-    const buildingId = model.value.nycBuildingId;
-    if (!buildingId) return;
+    const modelId = model.value.nycBuildingId;
+    if (!modelId) return;
     try {
-      const neighbors = await fetchJson<NeighborMesh>(`/api/solar/neighbors?id=${encodeURIComponent(buildingId)}`);
-      if (request === requestRef.current) dispatch({ type: 'neighbors-loaded', buildingId, neighbors });
+      const neighbors = await fetchJson<NeighborMesh>(`/api/solar/neighbors?id=${encodeURIComponent(modelId)}`);
+      if (request === requestRef.current) dispatch({ type: 'neighbors-loaded', buildingId: modelId, neighbors });
     } catch {
-      if (request === requestRef.current) dispatch({ type: 'neighbors-failed', buildingId });
+      if (request === requestRef.current) dispatch({ type: 'neighbors-failed', buildingId: modelId });
     }
   }, []);
 
@@ -168,10 +172,21 @@ export function SolarStudio() {
     if (!sun || !panels.length) return null;
     return panels.reduce((sum, panel) => sum + panelDirectLightFactor(panel.azimuthDegrees, panel.tiltDegrees, sun), 0) / panels.length;
   }, [panels, sun]);
-  const summary = useMemo(
-    () => summarizeDesign(panels.length, potential, potential?.panelCapacityWatts ?? DEFAULT_PANEL_WATTS, rate),
-    [panels.length, potential, rate],
+  const panelWatts = potential?.panelCapacityWatts ?? DEFAULT_PANEL_WATTS;
+  // Energy follows the design a beat behind so drags stay smooth on big roofs.
+  const energyPanels = useDeferredValue(panels);
+  const energy = useMemo(
+    () => (layoutContext ? estimateDesignEnergy(energyPanels, layoutContext, panelSize) : null),
+    [energyPanels, layoutContext, panelSize],
   );
+  const summary = useMemo(() => summarizeDesign({
+    panelCount: panels.length,
+    panelWatts,
+    annualAcKwh: (energy?.totalYield ?? 0) * (panelWatts / 1000),
+    efficiency: energy?.efficiency ?? 0,
+    carbonKgPerMwh: potential?.carbonOffsetFactorKgPerMwh ?? null,
+    electricityRateUsdPerKwh: rate,
+  }), [energy, panelWatts, panels.length, potential, rate]);
 
   const generate = useCallback((record: boolean) => {
     if (!model || !layoutContext) return;
@@ -340,7 +355,11 @@ export function SolarStudio() {
           location={location}
           buildingBounds={insights?.boundingBox}
           showMarker={building.status !== 'idle'}
+          selectedBuildingId={building.model?.nycBuildingId ?? null}
           onSelectLocation={(picked) => void loadBuilding(picked, t.places.mapPick)}
+          onSelectBuilding={(picked, point) => void loadBuilding(point, picked.address || t.places.mapPick, undefined, picked.id)}
+          onHoverBuilding={setHoveredBuilding}
+          onOutlinesVisibleChange={setOutlinesVisible}
           onMapError={(message) => setMapError(message?.includes('403') ? 'forbidden' : 'failed')}
         />
       </div>
@@ -431,7 +450,7 @@ export function SolarStudio() {
                   objective={objective}
                   onObjectiveChange={setObjective}
                   state={optimizerView}
-                  panelWatts={potential?.panelCapacityWatts ?? DEFAULT_PANEL_WATTS}
+                  panelWatts={panelWatts}
                   appliedKey={untouched ? `${params.tiltDegrees}:${params.rowSpacingMeters}` : null}
                   onRun={runOptimizer}
                   onApply={applyOption}
@@ -441,7 +460,6 @@ export function SolarStudio() {
           ) : (
             <ResultsPanel
               summary={summary}
-              hasGoogleData={potential !== null}
               rate={rate}
               onRateChange={setRate}
               onShare={() => void copyShareLink()}
@@ -453,7 +471,11 @@ export function SolarStudio() {
 
         <footer className="flex flex-col items-center gap-2">
           {step === 'select' ? (
-            <p className={`${pillClass} px-3 py-1.5 text-[12px] text-label-secondary`}>{t.map.hint}</p>
+            <p className={`${pillClass} px-3 py-1.5 text-[12px] ${hoveredBuilding ? 'font-medium text-label' : 'text-label-secondary'}`}>
+              {hoveredBuilding
+                ? t.map.hover(hoveredBuilding.address || t.places.fallback, hoveredBuilding.height)
+                : outlinesVisible ? t.map.hintPick : t.map.hintZoom}
+            </p>
           ) : (
             <>
               {editing && selectedIds.length > 0 && (

@@ -12,7 +12,9 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "data:build-footprints": "node scripts/index-nyc-footprints.mjs",
+    "data:build-climate": "node scripts/build-nyc-climate.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",
