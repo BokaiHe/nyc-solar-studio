@@ -11,6 +11,9 @@ export const PANEL_MOUNT_HEIGHT = 0.16;
 export const FLUSH_GAP = 0.08;
 // Roof faces flatter than this get tilted racks; steeper ones get flush panels.
 export const FLAT_ROOF_DEGREES = 8;
+// Gaps between neighboring panels in a row, and between flush rows on a slope.
+export const COLUMN_GAP = { rack: 0.05, flush: 0.03 } as const;
+export const FLUSH_ROW_GAP = 0.05;
 
 // Scene x is east and z is south, so a panel facing compass azimuth A is
 // yawed by 180° - A before tilting about its own x axis ('YXZ' order).

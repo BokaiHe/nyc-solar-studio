@@ -1,5 +1,5 @@
 import type { ConceptPanel, RoofModelData } from '@/lib/solar/types';
-import { FLAT_ROOF_DEGREES, panelCenter, type PanelSize } from './geometry';
+import { COLUMN_GAP, FLAT_ROOF_DEGREES, FLUSH_ROW_GAP, panelCenter, type PanelSize } from './geometry';
 import { dominantAxisDegrees, extractRoofFaces, planeHeight, type RoofFace, type Vec3 } from './roof-faces';
 import { annualSunSamples, exposure, Occluders, panelNormal } from './shading';
 import type { LayoutParams } from './state';
@@ -27,8 +27,6 @@ type Candidate = {
 
 // Raster resolution of each roof face, meters.
 const CELL = 0.2;
-const COLUMN_GAP = { rack: 0.05, flush: 0.03 };
-const FLUSH_ROW_GAP = 0.05;
 // Roof geometry this much above a face blocks it (bulkheads, upper setbacks).
 const BLOCKER_CLEARANCE = 0.3;
 // Grid offsets tried along each axis; the fill with the most panels wins.

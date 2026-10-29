@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { useSearchParams } from 'next/navigation';
 import { Map2DCanvas } from '@/components/map-2d-canvas';
 import { PlaceSearch } from '@/components/place-search';
-import { RoofScene3D } from '@/components/roof-scene-3d';
+import { RoofScene3D, type ViewCommand } from '@/components/roof-scene-3d';
 import { autoLayout, rackAzimuth, type LayoutResult } from '@/lib/design/auto-layout';
 import { DEFAULT_PANEL_SIZE, DEFAULT_PANEL_WATTS, FLAT_ROOF_DEGREES, panelCenter } from '@/lib/design/geometry';
+import { collides, rowPanelIds, similarPanelIds, snapToArray } from '@/lib/design/panel-ops';
 import { dominantAxisDegrees, extractRoofFaces, facingAzimuth, type Vec3 } from '@/lib/design/roof-faces';
 import { encodeSharedDesign, parseSharedDesign, type SharedDesign } from '@/lib/design/share';
-import { canDesign, initialStudioState, studioReducer } from '@/lib/design/state';
+import { canDesign, initialStudioState, isUntouchedLayout, sameParams, studioReducer, type Tool } from '@/lib/design/state';
 import { useI18n } from '@/lib/i18n';
 import { summarizeDesign } from '@/lib/solar/calculations';
 import { DEFAULT_ELECTRICITY_RATE_USD_PER_KWH, DEMO_BUILDINGS } from '@/lib/solar/config';
@@ -17,7 +18,9 @@ import { currentNewYorkDateAndMinute, getSunSnapshot, newYorkDateTimeToDate, pan
 import type { BuildingInsights, ConceptPanel, LatLng, RoofModelData } from '@/lib/solar/types';
 import { DesignPanel } from './design-panel';
 import { ResultsPanel } from './results-panel';
+import { SceneToolbar, ToolHint } from './scene-toolbar';
 import { SelectPanel } from './select-panel';
+import { SelectionBar } from './selection-bar';
 import { StepNav } from './step-nav';
 import { SunBar } from './sun-bar';
 import { cardClass, pillClass } from './ui';
@@ -38,10 +41,14 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 }
 
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', a: 'add', e: 'erase' };
+// Debounce for live regeneration while settings are edited.
+const LIVE_LAYOUT_DELAY_MS = 250;
+
 export function SolarStudio() {
   const { t, lang, setLang } = useI18n();
   const [state, dispatch] = useReducer(studioReducer, initialStudioState);
-  const { step, building, panels, selectedId } = state;
+  const { step, building, panels, selectedIds, tool, params } = state;
   const [mapError, setMapError] = useState<'forbidden' | 'failed' | null>(null);
   const [examplesOpen, setExamplesOpen] = useState(false);
   const [rate, setRate] = useState(DEFAULT_ELECTRICITY_RATE_USD_PER_KWH);
@@ -52,6 +59,7 @@ export function SolarStudio() {
   const [playing, setPlaying] = useState(false);
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [layoutResult, setLayoutResult] = useState<Omit<LayoutResult, 'panels'> | null>(null);
+  const [view, setView] = useState<ViewCommand>({ kind: 'reset', nonce: 0 });
   const requestRef = useRef(0);
   const didLoadSharedRef = useRef(false);
   const searchParams = useSearchParams();
@@ -124,33 +132,12 @@ export function SolarStudio() {
     return () => window.clearInterval(timer);
   }, [playing]);
 
-  useEffect(() => {
-    if (step !== 'design') return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target)) return;
-      const mod = event.ctrlKey || event.metaKey;
-      if (mod && event.key.toLowerCase() === 'z') {
-        event.preventDefault();
-        dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
-      } else if (mod && event.key.toLowerCase() === 'y') {
-        event.preventDefault();
-        dispatch({ type: 'redo' });
-      } else if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId !== null) {
-        event.preventDefault();
-        dispatch({ type: 'remove-panel', id: selectedId });
-      } else if (event.key === 'Escape') {
-        dispatch({ type: 'select-panel', id: null });
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedId, step]);
-
   const { model, insights, location } = building;
   const potential = insights?.solarPotential ?? null;
   const panelSize = useMemo(() => potential
     ? { widthMeters: potential.panelWidthMeters, heightMeters: potential.panelHeightMeters }
     : DEFAULT_PANEL_SIZE, [potential]);
+  const minSpacing = panelSize.widthMeters * 0.9;
   const roofAxis = useMemo(() => model ? dominantAxisDegrees(extractRoofFaces(model)) : null, [model]);
   const sun = useMemo(
     () => location ? getSunSnapshot(newYorkDateTimeToDate(dateIso, minuteOfDay), location.latitude, location.longitude) : null,
@@ -165,42 +152,91 @@ export function SolarStudio() {
     [panels.length, potential, rate],
   );
 
-  const runAutoLayout = useCallback(() => {
+  const generate = useCallback((record: boolean) => {
     if (!model) return;
     setLayoutBusy(true);
+    const layoutParams = params;
     // Yield a frame so the busy state paints before the synchronous layout runs.
     window.setTimeout(() => {
-      const { panels: generated, ...result } = autoLayout(model, state.params, panelSize);
-      dispatch({ type: 'set-panels', panels: generated });
+      const { panels: generated, ...result } = autoLayout(model, layoutParams, panelSize);
+      dispatch({ type: 'generated', panels: generated, params: layoutParams, record });
       setLayoutResult(result);
       setLayoutBusy(false);
     }, 30);
-  }, [model, panelSize, state.params]);
+  }, [model, panelSize, params]);
 
-  // A clicked flat roof gets a rack with the array settings; a pitched roof gets
-  // a flush panel following its slope.
-  const addPanelAt = useCallback((point: Vec3, normal: Vec3) => {
+  // Fill the roof on first entry, and keep an untouched layout in step with
+  // the settings. Hand edits pause this; the panel then offers to apply.
+  const untouched = isUntouchedLayout(state);
+  const fresh = state.generated === null && panels.length === 0 && state.past.length === 0;
+  const liveTarget = untouched && state.generated && !sameParams(state.generated.params, params);
+  useEffect(() => {
+    if (step !== 'design' || !model || layoutBusy || !(fresh || liveTarget)) return;
+    const timer = window.setTimeout(() => generate(fresh), fresh ? 0 : LIVE_LAYOUT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [fresh, generate, layoutBusy, liveTarget, model, step]);
+
+  // A flat roof hit gets a rack with the array settings; a pitched one a flush
+  // panel along its slope. The result snaps to a nearby array when one exists.
+  const planPanel = useCallback((point: Vec3, normal: Vec3) => {
     const slope = (Math.acos(Math.min(1, normal[1])) * 180) / Math.PI;
     const flush = slope >= FLAT_ROOF_DEGREES;
-    const tiltDegrees = flush ? slope : state.params.tiltDegrees;
-    const panel: Omit<ConceptPanel, 'id'> = {
+    const tiltDegrees = flush ? slope : params.tiltDegrees;
+    const candidate: Omit<ConceptPanel, 'id'> = {
       position: panelCenter(point, normal, flush ? 'flush' : 'rack', tiltDegrees, panelSize.heightMeters),
-      azimuthDegrees: flush
-        ? facingAzimuth(normal)
-        : rackAzimuth(state.params.azimuthDegrees, state.params.alignToRoof ? roofAxis : null),
+      azimuthDegrees: flush ? facingAzimuth(normal) : rackAzimuth(params.azimuthDegrees, params.alignToRoof ? roofAxis : null),
       tiltDegrees,
       landscape: false,
       mount: flush ? 'flush' : 'rack',
     };
-    dispatch({ type: 'add-panel', panel, minSpacing: panelSize.widthMeters * 0.7 });
-  }, [panelSize, roofAxis, state.params]);
+    const snapped = snapToArray(candidate, panels, panelSize, params.rowSpacingMeters);
+    const panel = snapped ? { ...candidate, position: snapped } : candidate;
+    return { panel, valid: !collides(panel.position, panels, minSpacing) };
+  }, [minSpacing, panelSize, panels, params, roofAxis]);
 
-  const movePanel = useCallback((id: number, point: Vec3, normal: Vec3) => {
-    const panel = panels.find((item) => item.id === id);
-    if (!panel) return;
-    const length = panel.landscape ? panelSize.widthMeters : panelSize.heightMeters;
-    dispatch({ type: 'drag-move', id, position: panelCenter(point, normal, panel.mount, panel.tiltDegrees, length) });
-  }, [panelSize, panels]);
+  const selectRelated = useCallback((pick: (all: ConceptPanel[], anchor: ConceptPanel) => number[]) => {
+    const anchor = panels.find((panel) => panel.id === selectedIds.at(-1));
+    if (anchor) dispatch({ type: 'select', ids: pick(panels, anchor), mode: 'replace' });
+  }, [panels, selectedIds]);
+
+  useEffect(() => {
+    if (step !== 'design') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+      const mod = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (mod && key === 'z') {
+        event.preventDefault();
+        dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
+      } else if (mod && key === 'y') {
+        event.preventDefault();
+        dispatch({ type: 'redo' });
+      } else if (mod && key === 'a') {
+        event.preventDefault();
+        dispatch({ type: 'set-tool', tool: 'select' });
+        dispatch({ type: 'select', ids: panels.map((panel) => panel.id), mode: 'replace' });
+      } else if (!mod && !event.altKey && TOOL_KEYS[key]) {
+        dispatch({ type: 'set-tool', tool: TOOL_KEYS[key] });
+      } else if ((event.key === 'Delete' || event.key === 'Backspace') && selectedIds.length) {
+        event.preventDefault();
+        dispatch({ type: 'remove-panels', ids: selectedIds });
+      } else if (event.key === 'Escape') {
+        if (selectedIds.length) dispatch({ type: 'select', ids: [], mode: 'replace' });
+        else dispatch({ type: 'set-tool', tool: 'select' });
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [panels, selectedIds, step]);
+
+  const sceneHandlers = useMemo(() => ({
+    onAddPanel: (panel: Omit<ConceptPanel, 'id'>) => dispatch({ type: 'add-panel', panel, minSpacing }),
+    onSelect: (ids: number[], mode: 'replace' | 'add' | 'toggle') => dispatch({ type: 'select', ids, mode }),
+    onCheckpoint: () => dispatch({ type: 'checkpoint' }),
+    onMovePanels: (positions: Array<[number, Vec3]>) => dispatch({ type: 'move-panels', positions }),
+    onCancelGesture: () => dispatch({ type: 'undo' }),
+    onRemovePanels: (ids: number[]) => dispatch({ type: 'remove-panels', ids, record: false }),
+  }), [minSpacing]);
 
   const copyShareLink = useCallback(async () => {
     if (!location || !model?.nycBuildingId) return;
@@ -231,10 +267,11 @@ export function SolarStudio() {
   }
 
   const designReady = canDesign(state);
+  const editing = step === 'design';
   const showScene = step !== 'select' && model;
 
   return (
-    <main className="relative h-dvh min-h-[560px] overflow-hidden bg-slate-200 text-slate-900">
+    <main className="relative h-dvh min-h-[520px] overflow-hidden bg-slate-200 text-slate-900">
       {/* The map stays mounted so returning to the select step does not reload it. */}
       <div className={step === 'select' ? '' : 'invisible'}>
         <Map2DCanvas
@@ -248,25 +285,27 @@ export function SolarStudio() {
       </div>
       {showScene && (
         <RoofScene3D
+          key={model.nycBuildingId}
           model={model}
           panels={panels}
           panelSize={panelSize}
-          selectedId={selectedId}
+          selectedIds={selectedIds}
           sun={sun}
-          editable={step === 'design'}
-          onAddPanel={addPanelAt}
-          onSelectPanel={(id) => dispatch({ type: 'select-panel', id })}
-          onDragStart={(id) => dispatch({ type: 'drag-start', id })}
-          onDragMove={movePanel}
+          tool={tool}
+          editable={editing}
+          view={view}
+          planPanel={planPanel}
+          {...sceneHandlers}
         />
       )}
 
-      <div className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-4">
+      <div className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-3 md:p-4">
         <header className="flex flex-wrap items-start gap-2">
-          <button type="button" onClick={startOver} className={`${pillClass} grid h-12 w-12 shrink-0 place-items-center text-sm font-black tracking-tight`} aria-label={t.header.home}>
+          <button type="button" onClick={startOver} className={`${pillClass} grid h-11 w-11 shrink-0 place-items-center text-sm font-black tracking-tight`} aria-label={t.header.home}>
             SR
           </button>
-          <div className={`${pillClass} w-[min(360px,calc(100vw-9rem))] p-1.5`}>
+          {/* Its own full-width row on phones; inline on wider screens. */}
+          <div className={`${pillClass} order-last w-full p-1.5 md:order-none md:w-[360px]`}>
             <PlaceSearch
               apiKey={apiKey}
               placeholder={t.header.search}
@@ -276,11 +315,11 @@ export function SolarStudio() {
             />
           </div>
           <div className="relative">
-            <button type="button" onClick={() => setExamplesOpen((open) => !open)} aria-expanded={examplesOpen} className={`${pillClass} h-12 px-4 text-sm hover:bg-slate-50`}>
-              {t.header.examples} ⌄
+            <button type="button" onClick={() => setExamplesOpen((open) => !open)} aria-expanded={examplesOpen} aria-label={t.header.examples} className={`${pillClass} h-11 px-3 text-sm hover:bg-slate-50`}>
+              <span className="hidden sm:inline">{t.header.examples} </span>⌄
             </button>
             {examplesOpen && (
-              <div className={`${cardClass} absolute left-0 top-14 z-10 w-56 p-2`}>
+              <div className={`${cardClass} absolute left-0 top-12 z-10 w-56 p-2`}>
                 {DEMO_BUILDINGS.map((demo) => (
                   <button key={demo.id} type="button" onClick={() => void loadBuilding({ latitude: demo.latitude, longitude: demo.longitude }, t.places[demo.id])} className="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-100">
                     {t.places[demo.id]}
@@ -289,7 +328,7 @@ export function SolarStudio() {
               </div>
             )}
           </div>
-          <button type="button" onClick={() => setLang(lang === 'en' ? 'zh' : 'en')} aria-label={t.switchLabel} className={`${pillClass} h-12 px-4 text-sm font-semibold hover:bg-slate-50`}>
+          <button type="button" onClick={() => setLang(lang === 'en' ? 'zh' : 'en')} aria-label={t.switchLabel} className={`${pillClass} h-11 px-3 text-sm font-semibold hover:bg-slate-50`}>
             {t.switchTo}
           </button>
           <div className="ml-auto">
@@ -297,9 +336,18 @@ export function SolarStudio() {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 items-start justify-end">
+        <div className="flex min-h-0 flex-1 flex-col justify-between gap-3 md:flex-row md:items-start">
+          {showScene ? (
+            <SceneToolbar
+              tool={tool}
+              editable={editing}
+              onToolChange={(next) => dispatch({ type: 'set-tool', tool: next })}
+              onResetView={() => setView((current) => ({ kind: 'reset', nonce: current.nonce + 1 }))}
+              onTopView={() => setView((current) => ({ kind: 'top', nonce: current.nonce + 1 }))}
+            />
+          ) : <span />}
           {mapError && step === 'select' ? (
-            <div className={`${cardClass} h-fit w-[min(360px,100%)] p-5 text-sm text-amber-800`}>{t.map[mapError]}</div>
+            <div className={`${cardClass} h-fit w-full p-5 text-sm text-amber-800 md:w-[340px]`}>{t.map[mapError]}</div>
           ) : step === 'select' ? (
             <SelectPanel building={building} onStart={() => dispatch({ type: 'set-step', step: 'design' })} />
           ) : step === 'design' ? (
@@ -307,7 +355,7 @@ export function SolarStudio() {
               state={state}
               capacityKw={summary.capacityKw}
               dispatch={dispatch}
-              onAutoLayout={runAutoLayout}
+              onGenerate={() => generate(true)}
               layoutBusy={layoutBusy}
               layoutResult={layoutResult}
               onNext={() => dispatch({ type: 'set-step', step: 'results' })}
@@ -329,20 +377,37 @@ export function SolarStudio() {
           {step === 'select' ? (
             <p className="rounded-full bg-slate-950/70 px-3 py-1.5 text-[11px] text-white/85 backdrop-blur-md">{t.map.hint}</p>
           ) : (
-            <SunBar
-              open={sunOpen}
-              onToggle={() => { setSunOpen((open) => !open); setPlaying(false); }}
-              dateIso={dateIso}
-              onDateChange={setDateIso}
-              minuteOfDay={minuteOfDay}
-              onMinuteChange={setMinuteOfDay}
-              playing={playing}
-              onPlayingChange={setPlaying}
-              sun={sun}
-              directLight={directLight}
-            />
+            <>
+              {editing && selectedIds.length > 0 && (
+                <SelectionBar
+                  count={selectedIds.length}
+                  onRotate={(degrees) => dispatch({ type: 'transform-panels', ids: selectedIds, azimuthDelta: degrees })}
+                  onToggleOrientation={() => dispatch({ type: 'transform-panels', ids: selectedIds, toggleLandscape: true })}
+                  onSelectRow={() => selectRelated(rowPanelIds)}
+                  onSelectRoof={() => selectRelated(similarPanelIds)}
+                  onSelectAll={() => dispatch({ type: 'select', ids: panels.map((panel) => panel.id), mode: 'replace' })}
+                  onDelete={() => dispatch({ type: 'remove-panels', ids: selectedIds })}
+                  onDeselect={() => dispatch({ type: 'select', ids: [], mode: 'replace' })}
+                />
+              )}
+              {editing && selectedIds.length === 0 && <ToolHint tool={tool} editable={editing} />}
+              <div className="pointer-events-auto">
+                <SunBar
+                  open={sunOpen}
+                  onToggle={() => { setSunOpen((open) => !open); setPlaying(false); }}
+                  dateIso={dateIso}
+                  onDateChange={setDateIso}
+                  minuteOfDay={minuteOfDay}
+                  onMinuteChange={setMinuteOfDay}
+                  playing={playing}
+                  onPlayingChange={setPlaying}
+                  sun={sun}
+                  directLight={directLight}
+                />
+              </div>
+            </>
           )}
-          <p className={`self-start text-[10px] ${step === 'select' ? 'text-white/70' : 'text-slate-500'}`}>{t.attribution}</p>
+          <p className={`hidden self-start text-[10px] md:block ${step === 'select' ? 'text-white/70' : 'text-slate-500'}`}>{t.attribution}</p>
         </footer>
       </div>
     </main>

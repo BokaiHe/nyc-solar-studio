@@ -15,6 +15,11 @@ All notable changes will be documented in this file.
 - Rewrite automatic panel layout: roof surfaces are grouped into planar faces, rasterized with setbacks from real edges and from higher roof parts, and filled with a grid aligned to the building axis. Flat faces get tilted racks; pitched faces get flush panels along the slope.
 - Score every candidate position by annual sun exposure with self-shading from the building; positions below 80% of the best exposure (shaded podiums, north slopes) are skipped unless the user includes them. The 320-panel scan cap is gone; an optional limit keeps the best-exposed panels.
 - Frame the 3D camera on the roof instead of the middle of tall buildings.
+- Rework 3D editing around Select / Place / Erase tools (V / A / E): box-select with Shift to add, move selected groups together, place panels with a live preview that snaps to nearby rows, and erase by dragging. Dragging empty space orbits; right-drag pans.
+- Add a selection bar for batch rotate, portrait/landscape, select row / whole roof / all, and delete; whole gestures undo in one step.
+- Generate the array automatically on entering design and regenerate it live while settings change, until the layout is edited by hand; then offer to apply new settings instead.
+- Compact design panel with collapsible advanced options, reset / top view buttons, and a bottom-sheet layout on phones.
+- Draw panels with shared materials, a cell texture and instanced rack posts so large roofs stay responsive.
 
 - Load original NYC / TUM LoD2 CityGML roof and wall surfaces from a local spatial index.
 - Match exact footprints and retain NYC BIN; no GBA or DSM fallback in the 3D route.

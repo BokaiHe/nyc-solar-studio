@@ -23,7 +23,7 @@ export function StepNav({ step, designReady, onChange }: { step: Step; designRea
             className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition ${active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'} disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent`}
           >
             <span className={`grid h-5 w-5 place-items-center rounded-full text-[11px] font-semibold ${active ? 'bg-white text-slate-900' : 'bg-slate-200 text-slate-600'}`}>{index + 1}</span>
-            {t.steps[item]}
+            <span className={active ? '' : 'hidden sm:inline'}>{t.steps[item]}</span>
           </button>
         );
       })}

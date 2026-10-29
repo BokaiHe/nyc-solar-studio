@@ -3,6 +3,9 @@ import type { BuildingInsights, ConceptPanel, LatLng, RoofModelData } from '@/li
 export type Step = 'select' | 'design' | 'results';
 export type BuildingStatus = 'idle' | 'loading' | 'ready' | 'no-model' | 'error';
 export type NoticeKey = 'sharedModelChanged';
+export type Tool = 'select' | 'add' | 'erase';
+export type SelectMode = 'replace' | 'add' | 'toggle';
+type Position = [number, number, number];
 
 export type LayoutParams = {
   // Requested facing for racks on flat roofs; pitched roofs use their own slope.
@@ -33,8 +36,12 @@ export type StudioState = {
   panels: ConceptPanel[];
   past: ConceptPanel[][];
   future: ConceptPanel[][];
-  selectedId: number | null;
+  selectedIds: number[];
+  tool: Tool;
   params: LayoutParams;
+  // The last generated layout and the settings that produced it. While
+  // `panels` is still this exact array, the layout is untouched by hand.
+  generated: { panels: ConceptPanel[]; params: LayoutParams } | null;
   notice: NoticeKey | null;
 };
 
@@ -43,14 +50,18 @@ export type StudioAction =
   | { type: 'building-loaded'; location: LatLng; model: RoofModelData; insights: BuildingInsights | null; panels?: ConceptPanel[]; notice?: NoticeKey | null }
   | { type: 'building-failed'; status: 'no-model' | 'error' }
   | { type: 'set-step'; step: Step }
+  | { type: 'set-tool'; tool: Tool }
   | { type: 'set-params'; params: Partial<LayoutParams> }
-  | { type: 'set-panels'; panels: ConceptPanel[] }
+  // `record: false` replaces an untouched generated layout without a new undo step.
+  | { type: 'generated'; panels: ConceptPanel[]; params: LayoutParams; record: boolean }
+  | { type: 'clear-panels' }
   | { type: 'add-panel'; panel: Omit<ConceptPanel, 'id'>; minSpacing: number }
-  | { type: 'update-panel'; id: number; patch: Partial<Omit<ConceptPanel, 'id'>> }
-  | { type: 'remove-panel'; id: number }
-  | { type: 'drag-start'; id: number }
-  | { type: 'drag-move'; id: number; position: [number, number, number] }
-  | { type: 'select-panel'; id: number | null }
+  | { type: 'transform-panels'; ids: number[]; azimuthDelta?: number; toggleLandscape?: boolean }
+  | { type: 'remove-panels'; ids: number[]; record?: boolean }
+  // Snapshot before a drag or erase stroke so the whole gesture undoes at once.
+  | { type: 'checkpoint' }
+  | { type: 'move-panels'; positions: Array<[number, Position]> }
+  | { type: 'select'; ids: number[]; mode: SelectMode }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'reset' };
@@ -73,8 +84,10 @@ export const initialStudioState: StudioState = {
   panels: [],
   past: [],
   future: [],
-  selectedId: null,
+  selectedIds: [],
+  tool: 'select',
   params: DEFAULT_PARAMS,
+  generated: null,
   notice: null,
 };
 
@@ -82,20 +95,34 @@ export function nextPanelId(panels: ConceptPanel[]): number {
   return panels.reduce((max, panel) => Math.max(max, panel.id), 0) + 1;
 }
 
+function keepExisting(ids: number[], panels: ConceptPanel[]): number[] {
+  const present = new Set(panels.map((panel) => panel.id));
+  return ids.filter((id) => present.has(id));
+}
+
 // Every edit that the user can undo goes through here.
-function commit(state: StudioState, panels: ConceptPanel[], selectedId = state.selectedId): StudioState {
+function commit(state: StudioState, panels: ConceptPanel[], selectedIds = state.selectedIds): StudioState {
   if (panels === state.panels) return state;
   return {
     ...state,
     panels,
     past: [...state.past, state.panels].slice(-HISTORY_LIMIT),
     future: [],
-    selectedId: selectedId !== null && panels.some((panel) => panel.id === selectedId) ? selectedId : null,
+    selectedIds: keepExisting(selectedIds, panels),
   };
 }
 
 export function canDesign(state: StudioState): boolean {
   return state.building.status === 'ready' && state.building.model !== null;
+}
+
+// True while the panels are exactly the last generated layout.
+export function isUntouchedLayout(state: StudioState): boolean {
+  return state.generated !== null && state.panels === state.generated.panels;
+}
+
+export function sameParams(a: LayoutParams, b: LayoutParams): boolean {
+  return (Object.keys(a) as Array<keyof LayoutParams>).every((key) => a[key] === b[key]);
 }
 
 export function studioReducer(state: StudioState, action: StudioAction): StudioState {
@@ -104,6 +131,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return {
         ...initialStudioState,
         params: state.params,
+        tool: state.tool,
         building: { status: 'loading', location: action.location, label: action.label, model: null, insights: null },
       };
     case 'building-loaded':
@@ -122,39 +150,67 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, building: { ...state.building, status: action.status } };
     case 'set-step':
       if (action.step !== 'select' && !canDesign(state)) return state;
-      return { ...state, step: action.step, selectedId: action.step === 'design' ? state.selectedId : null };
+      return { ...state, step: action.step, selectedIds: action.step === 'design' ? state.selectedIds : [] };
+    case 'set-tool':
+      return { ...state, tool: action.tool, selectedIds: action.tool === 'select' ? state.selectedIds : [] };
     case 'set-params':
       return { ...state, params: { ...state.params, ...action.params } };
-    case 'set-panels':
-      return commit(state, action.panels, null);
+    case 'generated': {
+      const generated = { panels: action.panels, params: action.params };
+      if (!action.record) return { ...state, panels: action.panels, selectedIds: [], generated };
+      return { ...commit(state, action.panels, []), generated };
+    }
+    case 'clear-panels':
+      return state.panels.length ? commit(state, [], []) : state;
     case 'add-panel': {
       const [x, y, z] = action.panel.position;
       // Panels on another roof level directly above or below do not collide.
       if (state.panels.some((panel) => Math.hypot(panel.position[0] - x, panel.position[2] - z) < action.minSpacing
         && Math.abs(panel.position[1] - y) < 1)) return state;
       const id = nextPanelId(state.panels);
-      return commit(state, [...state.panels, { ...action.panel, id }], id);
+      return commit(state, [...state.panels, { ...action.panel, id }], [id]);
     }
-    case 'update-panel':
-      return commit(state, state.panels.map((panel) => panel.id === action.id ? { ...panel, ...action.patch } : panel));
-    case 'remove-panel':
-      return commit(state, state.panels.filter((panel) => panel.id !== action.id));
-    case 'drag-start':
-      // Snapshot once so a whole drag undoes in one step; moves below skip history.
-      return { ...state, past: [...state.past, state.panels].slice(-HISTORY_LIMIT), future: [], selectedId: action.id };
-    case 'drag-move':
-      return { ...state, panels: state.panels.map((panel) => panel.id === action.id ? { ...panel, position: action.position } : panel) };
-    case 'select-panel':
-      return { ...state, selectedId: action.id };
+    case 'transform-panels': {
+      const ids = new Set(action.ids);
+      if (!ids.size) return state;
+      return commit(state, state.panels.map((panel) => ids.has(panel.id)
+        ? {
+          ...panel,
+          azimuthDegrees: (((panel.azimuthDegrees + (action.azimuthDelta ?? 0)) % 360) + 360) % 360,
+          landscape: action.toggleLandscape ? !panel.landscape : panel.landscape,
+        }
+        : panel));
+    }
+    case 'remove-panels': {
+      const ids = new Set(action.ids);
+      const panels = state.panels.filter((panel) => !ids.has(panel.id));
+      if (panels.length === state.panels.length) return state;
+      if (action.record === false) return { ...state, panels, selectedIds: keepExisting(state.selectedIds, panels) };
+      return commit(state, panels);
+    }
+    case 'checkpoint':
+      return { ...state, past: [...state.past, state.panels].slice(-HISTORY_LIMIT), future: [] };
+    case 'move-panels': {
+      const moves = new Map(action.positions);
+      return { ...state, panels: state.panels.map((panel) => moves.has(panel.id) ? { ...panel, position: moves.get(panel.id)! } : panel) };
+    }
+    case 'select': {
+      const current = new Set(action.mode === 'replace' ? [] : state.selectedIds);
+      for (const id of action.ids) {
+        if (action.mode === 'toggle' && current.has(id)) current.delete(id);
+        else current.add(id);
+      }
+      return { ...state, selectedIds: keepExisting([...current], state.panels) };
+    }
     case 'undo': {
       const previous = state.past.at(-1);
       if (!previous) return state;
-      return { ...state, panels: previous, past: state.past.slice(0, -1), future: [state.panels, ...state.future], selectedId: null };
+      return { ...state, panels: previous, past: state.past.slice(0, -1), future: [state.panels, ...state.future], selectedIds: [] };
     }
     case 'redo': {
       const next = state.future[0];
       if (!next) return state;
-      return { ...state, panels: next, past: [...state.past, state.panels], future: state.future.slice(1), selectedId: null };
+      return { ...state, panels: next, past: [...state.past, state.panels], future: state.future.slice(1), selectedIds: [] };
     }
     case 'reset':
       return { ...initialStudioState, params: state.params };
