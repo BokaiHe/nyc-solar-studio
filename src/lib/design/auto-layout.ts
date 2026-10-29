@@ -1,4 +1,5 @@
 import type { ConceptPanel, NeighborMesh, RoofModelData } from '@/lib/solar/types';
+import { panelClear } from './clearance';
 import { COLUMN_GAP, FLAT_ROOF_DEGREES, FLUSH_ROW_GAP, panelCenter, type PanelSize } from './geometry';
 import { dominantAxisDegrees, extractRoofFaces, planeHeight, type RoofFace, type Vec3 } from './roof-faces';
 import { annualSunSamples, annualYield, idealPanelYield, Occluders, panelNormal, VisibilityCache, type RowShade, type SunSample } from './shading';
@@ -23,6 +24,8 @@ export type LayoutContext = {
   axisDegrees: number | null;
   samples: SunSample[];
   visibility: VisibilityCache;
+  // The roof, its walls and surrounding buildings, for shading and collisions.
+  occluders: Occluders;
   idealPanelScore: number;
   // Surrounding buildings counted as shade, if they were loaded.
   neighborCount: number;
@@ -44,6 +47,7 @@ export function createLayoutContext(
     axisDegrees: faces.length ? dominantAxisDegrees(faces) : null,
     samples,
     visibility: new VisibilityCache(samples, occluders),
+    occluders,
     idealPanelScore: idealPanelYield(samples),
     neighborCount: neighbors?.buildingCount ?? 0,
   };
@@ -309,9 +313,12 @@ export function autoLayout(
   if (!faces.length) return { panels: [], candidateCount: 0, shadedCount: 0, totalScore: 0, idealPanelScore };
   const azimuth = rackAzimuth(params.azimuthDegrees, params.alignToRoof ? context.axisDegrees : null);
   const minimumArea = panel.widthMeters * panel.heightMeters;
+  // Grid fits on each face, minus any that would run into a wall, an upper
+  // part of the building or a neighbor standing on or against the roof.
   const candidates = faces.flatMap((face, index) => face.areaSquareMeters < minimumArea
     ? []
-    : faceCandidates(faces, index, faceFrame(face, azimuth, params.tiltDegrees), params, panel));
+    : faceCandidates(faces, index, faceFrame(face, azimuth, params.tiltDegrees), params, panel))
+    .filter((candidate) => panelClear({ ...candidate, landscape: false }, panel, context.occluders));
 
   for (const candidate of candidates) {
     const normal = panelNormal(candidate.azimuthDegrees, candidate.tiltDegrees);

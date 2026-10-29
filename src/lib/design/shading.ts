@@ -99,9 +99,9 @@ export class Occluders {
   }
 
   // Slab test: does the ray from `origin` along `direction` enter the box?
-  private static hitsBox(origin: Vec3, direction: Vec3, min: Vec3, max: Vec3): boolean {
+  private static hitsBox(origin: Vec3, direction: Vec3, min: Vec3, max: Vec3, maxDistance: number): boolean {
     let near = 0;
-    let far = Infinity;
+    let far = maxDistance;
     for (let axis = 0; axis < 3; axis += 1) {
       const d = direction[axis];
       if (Math.abs(d) < 1e-12) {
@@ -118,13 +118,14 @@ export class Occluders {
     return true;
   }
 
-  // Möller–Trumbore, returning on the first hit beyond the start offset.
-  blocked(origin: Vec3, direction: Vec3): boolean {
+  // Möller–Trumbore, returning on the first hit beyond the start offset and,
+  // for a unit `direction`, within `maxDistance` meters.
+  blocked(origin: Vec3, direction: Vec3, maxDistance = Infinity): boolean {
     const [ox, oy, oz] = origin;
     const [dx, dy, dz] = direction;
     const d = this.data;
     for (const group of this.groups) {
-      if (!Occluders.hitsBox(origin, direction, group.min, group.max)) continue;
+      if (!Occluders.hitsBox(origin, direction, group.min, group.max, maxDistance)) continue;
       for (let t = group.from; t < group.to; t += 1) {
         const i = t * 9;
         // Skip triangles entirely below the ray start when the ray points up.
@@ -141,7 +142,8 @@ export class Occluders {
         const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
         const v = (dx * qx + dy * qy + dz * qz) * inv;
         if (v < 0 || u + v > 1) continue;
-        if ((e2x * qx + e2y * qy + e2z * qz) * inv > EPSILON) return true;
+        const distance = (e2x * qx + e2y * qy + e2z * qz) * inv;
+        if (distance > EPSILON && distance <= maxDistance) return true;
       }
     }
     return false;

@@ -8,6 +8,7 @@ import { RoofScene3D, type ViewCommand } from '@/components/roof-scene-3d';
 import { autoLayout, createLayoutContext, rackAzimuth, type LayoutResult } from '@/lib/design/auto-layout';
 import { estimateDesignEnergy } from '@/lib/design/energy';
 import { DEFAULT_PANEL_SIZE, DEFAULT_PANEL_WATTS, FLAT_ROOF_DEGREES, panelCenter } from '@/lib/design/geometry';
+import { panelClear } from '@/lib/design/clearance';
 import { collides, rowPanelIds, similarPanelIds, snapToArray } from '@/lib/design/panel-ops';
 import { facingAzimuth, type Vec3 } from '@/lib/design/roof-faces';
 import { encodeSharedDesign, parseSharedDesign, type SharedDesign } from '@/lib/design/share';
@@ -234,8 +235,10 @@ export function SolarStudio() {
     };
     const snapped = snapToArray(candidate, panels, panelSize, params.rowSpacingMeters);
     const panel = snapped ? { ...candidate, position: snapped } : candidate;
-    return { panel, valid: !collides(panel.position, panels, minSpacing) };
-  }, [minSpacing, panelSize, panels, params, roofAxis]);
+    // Hand-placed panels must also stay out of walls and other buildings.
+    const clear = layoutContext ? panelClear(panel, panelSize, layoutContext.occluders) : true;
+    return { panel, valid: clear && !collides(panel.position, panels, minSpacing) };
+  }, [layoutContext, minSpacing, panelSize, panels, params, roofAxis]);
 
   const selectRelated = useCallback((pick: (all: ConceptPanel[], anchor: ConceptPanel) => number[]) => {
     const anchor = panels.find((panel) => panel.id === selectedIds.at(-1));
