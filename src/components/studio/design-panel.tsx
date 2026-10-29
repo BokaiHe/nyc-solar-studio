@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, type Dispatch } from 'react';
+import { useState, type Dispatch, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n';
 import type { LayoutResult } from '@/lib/design/auto-layout';
 import { isUntouchedLayout, sameParams, type LayoutParams, type StudioAction, type StudioState } from '@/lib/design/state';
 import { Eyebrow, GroupTitle, PanelTitle, primaryButtonClass, secondaryButtonClass, SidePanel, SliderField, Switch } from './ui';
 
-export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBusy, layoutResult, onNext }: {
+export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBusy, layoutResult, onNext, optimizer }: {
   state: StudioState;
   capacityKw: number;
   dispatch: Dispatch<StudioAction>;
@@ -14,6 +14,8 @@ export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBus
   layoutBusy: boolean;
   layoutResult: Omit<LayoutResult, 'panels'> | null;
   onNext: () => void;
+  // The best-layout search card, rendered under the layout status.
+  optimizer: ReactNode;
 }) {
   const { t } = useI18n();
   // Phones start collapsed so the roof stays visible. The panel only mounts
@@ -64,6 +66,8 @@ export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBus
               {layoutResult.candidateCount ? t.design.layoutSummary(panels.length, layoutResult.shadedCount) : t.design.layoutEmpty}
             </p>
           )}
+
+          {optimizer}
 
           <div className="mt-5"><GroupTitle>{t.design.layoutTitle}</GroupTitle></div>
           <div className="mt-2 space-y-3 rounded-[14px] bg-fill/60 p-3">

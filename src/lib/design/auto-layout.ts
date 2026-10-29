@@ -1,7 +1,7 @@
 import type { ConceptPanel, RoofModelData } from '@/lib/solar/types';
 import { COLUMN_GAP, FLAT_ROOF_DEGREES, FLUSH_ROW_GAP, panelCenter, type PanelSize } from './geometry';
 import { dominantAxisDegrees, extractRoofFaces, planeHeight, type RoofFace, type Vec3 } from './roof-faces';
-import { annualSunSamples, exposure, Occluders, panelNormal } from './shading';
+import { annualSunSamples, exposure, idealPanelExposure, Occluders, panelNormal, VisibilityCache, type RowShade, type SunSample } from './shading';
 import type { LayoutParams } from './state';
 
 export type LayoutResult = {
@@ -10,7 +10,33 @@ export type LayoutResult = {
   candidateCount: number;
   // Fits dropped because they fall below the exposure threshold.
   shadedCount: number;
+  // Annual exposure of the kept panels, and of one ideal unshaded panel here.
+  totalScore: number;
+  idealPanelScore: number;
 };
+
+// Everything about a roof that does not depend on the layout settings, so
+// repeated layouts (live updates, the optimizer) can reuse it.
+export type LayoutContext = {
+  faces: RoofFace[];
+  axisDegrees: number | null;
+  samples: SunSample[];
+  visibility: VisibilityCache;
+  idealPanelScore: number;
+};
+
+export function createLayoutContext(model: Pick<RoofModelData, 'positions' | 'indices' | 'wallPositions' | 'wallIndices' | 'center'>): LayoutContext {
+  const faces = extractRoofFaces(model);
+  const samples = annualSunSamples(model.center);
+  const occluders = new Occluders([model.positions, model.wallPositions], [model.indices, model.wallIndices]);
+  return {
+    faces,
+    axisDegrees: faces.length ? dominantAxisDegrees(faces) : null,
+    samples,
+    visibility: new VisibilityCache(samples, occluders),
+    idealPanelScore: idealPanelExposure(samples),
+  };
+}
 
 type Mount = ConceptPanel['mount'];
 
@@ -22,6 +48,8 @@ type Candidate = {
   azimuthDegrees: number;
   tiltDegrees: number;
   mount: Mount;
+  // Set for rack panels that have another row in front of them.
+  row?: RowShade;
   score: number;
 };
 
@@ -31,8 +59,6 @@ const CELL = 0.2;
 const BLOCKER_CLEARANCE = 0.3;
 // Grid offsets tried along each axis; the fill with the most panels wins.
 const PHASES = 6;
-// Candidates within this distance on a face share one shading evaluation.
-const SHADE_CACHE_METERS = 1.5;
 // Without "include shaded", keep positions with at least this share of the
 // best position's annual exposure, in the spirit of the common 80% TSRF rule.
 // It drops podiums in a tower's shadow and slopes facing away from the sun.
@@ -223,8 +249,23 @@ function faceCandidates(faces: RoofFace[], index: number, frame: Frame, params: 
     }
   }
 
+  // A rack panel is shaded by the row in front (toward the sun, +v) when a
+  // panel sits one row pitch ahead at about the same position along the row.
+  const rowsAhead = new Set<number>();
+  if (frame.mount === 'rack') {
+    const byRow = new Map<number, number[]>();
+    best.forEach(([, v], index) => {
+      const row = Math.round(v / rowPitch);
+      byRow.set(row, [...(byRow.get(row) ?? []), index]);
+    });
+    best.forEach(([u, v], index) => {
+      const ahead = byRow.get(Math.round(v / rowPitch) + 1) ?? [];
+      if (ahead.some((other) => Math.abs(best[other][0] - u) < width)) rowsAhead.add(index);
+    });
+  }
+
   const up: Vec3 = [0, 1, 0];
-  return best.map(([u, v]) => {
+  return best.map(([u, v], index) => {
     const onPlane: Vec3 = [
       frame.origin[0] + frame.across[0] * u + frame.forward[0] * v,
       frame.origin[1] + frame.across[1] * u + frame.forward[1] * v,
@@ -238,37 +279,32 @@ function faceCandidates(faces: RoofFace[], index: number, frame: Frame, params: 
       azimuthDegrees: frame.azimuthDegrees,
       tiltDegrees: frame.tiltDegrees,
       mount: frame.mount,
+      row: rowsAhead.has(index) ? { lengthMeters: length, pitchMeters: rowPitch } : undefined,
       score: 0,
     };
   });
 }
 
 // Fill each roof face with a tidy grid aligned to the building, then keep the
-// positions with good annual sun exposure (self-shading by the building only).
+// positions with good annual sun exposure. Shading counts the building itself
+// and the row in front; neighboring buildings and trees are not modeled.
 export function autoLayout(
   model: Pick<RoofModelData, 'positions' | 'indices' | 'wallPositions' | 'wallIndices' | 'center'>,
   params: LayoutParams,
   panel: PanelSize,
+  context: LayoutContext = createLayoutContext(model),
 ): LayoutResult {
-  const faces = extractRoofFaces(model);
-  if (!faces.length) return { panels: [], candidateCount: 0, shadedCount: 0 };
-  const azimuth = rackAzimuth(params.azimuthDegrees, params.alignToRoof ? dominantAxisDegrees(faces) : null);
+  const { faces, samples, visibility, idealPanelScore } = context;
+  if (!faces.length) return { panels: [], candidateCount: 0, shadedCount: 0, totalScore: 0, idealPanelScore };
+  const azimuth = rackAzimuth(params.azimuthDegrees, params.alignToRoof ? context.axisDegrees : null);
   const minimumArea = panel.widthMeters * panel.heightMeters;
   const candidates = faces.flatMap((face, index) => face.areaSquareMeters < minimumArea
     ? []
     : faceCandidates(faces, index, faceFrame(face, azimuth, params.tiltDegrees), params, panel));
 
-  const samples = annualSunSamples(model.center);
-  const occluders = new Occluders([model.positions, model.wallPositions], [model.indices, model.wallIndices]);
-  const cache = new Map<string, number>();
   for (const candidate of candidates) {
-    const key = `${candidate.face}:${Math.round(candidate.u / SHADE_CACHE_METERS)}:${Math.round(candidate.v / SHADE_CACHE_METERS)}`;
-    let score = cache.get(key);
-    if (score === undefined) {
-      score = exposure(candidate.position, panelNormal(candidate.azimuthDegrees, candidate.tiltDegrees), samples, occluders).score;
-      cache.set(key, score);
-    }
-    candidate.score = score;
+    const normal = panelNormal(candidate.azimuthDegrees, candidate.tiltDegrees);
+    candidate.score = exposure(normal, candidate.azimuthDegrees, candidate.tiltDegrees, visibility.at(candidate.position), samples, candidate.row);
   }
 
   const bestScore = range([0, ...candidates.map((candidate) => candidate.score)])[1];
@@ -291,5 +327,7 @@ export function autoLayout(
     })),
     candidateCount: candidates.length,
     shadedCount: candidates.length - exposed.length,
+    totalScore: chosen.reduce((sum, candidate) => sum + candidate.score, 0),
+    idealPanelScore,
   };
 }

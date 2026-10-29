@@ -10,13 +10,16 @@ import { DEFAULT_PANEL_SIZE, DEFAULT_PANEL_WATTS, FLAT_ROOF_DEGREES, panelCenter
 import { collides, rowPanelIds, similarPanelIds, snapToArray } from '@/lib/design/panel-ops';
 import { dominantAxisDegrees, extractRoofFaces, facingAzimuth, type Vec3 } from '@/lib/design/roof-faces';
 import { encodeSharedDesign, parseSharedDesign, type SharedDesign } from '@/lib/design/share';
-import { canDesign, initialStudioState, isUntouchedLayout, sameParams, studioReducer, type Tool } from '@/lib/design/state';
+import type { LayoutOption, Objective } from '@/lib/design/optimizer';
+import type { OptimizerMessage, OptimizerRequest } from '@/lib/design/optimizer.worker';
+import { canDesign, initialStudioState, isUntouchedLayout, sameParams, studioReducer, type LayoutParams, type Tool } from '@/lib/design/state';
 import { useI18n } from '@/lib/i18n';
 import { summarizeDesign } from '@/lib/solar/calculations';
 import { DEFAULT_ELECTRICITY_RATE_USD_PER_KWH, DEMO_BUILDINGS } from '@/lib/solar/config';
 import { currentNewYorkDateAndMinute, getSunSnapshot, newYorkDateTimeToDate, panelDirectLightFactor } from '@/lib/solar/sun';
 import type { BuildingInsights, ConceptPanel, LatLng, RoofModelData } from '@/lib/solar/types';
 import { DesignPanel } from './design-panel';
+import { OptimizeCard, type OptimizerState } from './optimize-card';
 import { ResultsPanel } from './results-panel';
 import { SceneToolbar, ToolHint } from './scene-toolbar';
 import { SelectPanel } from './select-panel';
@@ -60,6 +63,9 @@ export function SolarStudio() {
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [layoutResult, setLayoutResult] = useState<Omit<LayoutResult, 'panels'> | null>(null);
   const [view, setView] = useState<ViewCommand>({ kind: 'reset', nonce: 0 });
+  const [objective, setObjective] = useState<Objective>('max-total');
+  const [optimizer, setOptimizer] = useState<(OptimizerState & { base?: LayoutParams })>({ status: 'idle' });
+  const workerRef = useRef<Worker | null>(null);
   const requestRef = useRef(0);
   const didLoadSharedRef = useRef(false);
   const searchParams = useSearchParams();
@@ -70,6 +76,9 @@ export function SolarStudio() {
     const request = ++requestRef.current;
     dispatch({ type: 'select-building', location, label });
     setLayoutResult(null);
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    setOptimizer({ status: 'idle' });
     setExamplesOpen(false);
     if (!sharedDesign && window.location.pathname !== '/') window.history.replaceState(null, '', '/');
     const query = `lat=${location.latitude}&lng=${location.longitude}`;
@@ -238,6 +247,43 @@ export function SolarStudio() {
     onRemovePanels: (ids: number[]) => dispatch({ type: 'remove-panels', ids, record: false }),
   }), [minSpacing]);
 
+  useEffect(() => () => workerRef.current?.terminate(), []);
+
+  const runOptimizer = useCallback(() => {
+    if (!model) return;
+    workerRef.current?.terminate();
+    const worker = new Worker(new URL('../../lib/design/optimizer.worker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = worker;
+    const base = params;
+    setOptimizer({ status: 'running', done: 0, total: 1 });
+    worker.onmessage = (event: MessageEvent<OptimizerMessage>) => {
+      const message = event.data;
+      if (message.type === 'progress') setOptimizer({ status: 'running', done: message.done, total: message.total });
+      else {
+        setOptimizer(message.type === 'done' ? { status: 'done', result: message.result, stale: false, base } : { status: 'error' });
+        worker.terminate();
+        if (workerRef.current === worker) workerRef.current = null;
+      }
+    };
+    worker.onerror = () => {
+      setOptimizer({ status: 'error' });
+      worker.terminate();
+    };
+    worker.postMessage({ model, params: base, panel: panelSize, objective } satisfies OptimizerRequest);
+  }, [model, objective, panelSize, params]);
+
+  // Apply an option's settings and its already computed layout as one undo step.
+  const applyOption = useCallback((option: LayoutOption) => {
+    dispatch({ type: 'set-params', params: option.params });
+    dispatch({ type: 'generated', panels: option.panels, params: option.params, record: true });
+    setLayoutResult(option.result);
+  }, []);
+
+  // Results go stale when settings the search held fixed (facing, setback…) change.
+  const optimizerView: OptimizerState = optimizer.status === 'done' && optimizer.base
+    ? { ...optimizer, stale: !sameParams({ ...optimizer.base, tiltDegrees: params.tiltDegrees, rowSpacingMeters: params.rowSpacingMeters }, params) }
+    : optimizer;
+
   const copyShareLink = useCallback(async () => {
     if (!location || !model?.nycBuildingId) return;
     const path = encodeSharedDesign({ location, buildingId: model.nycBuildingId, panels });
@@ -249,6 +295,9 @@ export function SolarStudio() {
   const startOver = useCallback(() => {
     requestRef.current += 1;
     dispatch({ type: 'reset' });
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    setOptimizer({ status: 'idle' });
     setPlaying(false);
     setSunOpen(false);
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
@@ -359,6 +408,17 @@ export function SolarStudio() {
               layoutBusy={layoutBusy}
               layoutResult={layoutResult}
               onNext={() => dispatch({ type: 'set-step', step: 'results' })}
+              optimizer={(
+                <OptimizeCard
+                  objective={objective}
+                  onObjectiveChange={setObjective}
+                  state={optimizerView}
+                  panelWatts={potential?.panelCapacityWatts ?? DEFAULT_PANEL_WATTS}
+                  appliedKey={untouched ? `${params.tiltDegrees}:${params.rowSpacingMeters}` : null}
+                  onRun={runOptimizer}
+                  onApply={applyOption}
+                />
+              )}
             />
           ) : (
             <ResultsPanel

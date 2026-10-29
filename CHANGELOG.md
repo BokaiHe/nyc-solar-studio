@@ -22,6 +22,8 @@ All notable changes will be documented in this file.
 - Draw panels with shared materials, a cell texture and instanced rack posts so large roofs stay responsive.
 - Restyle the interface after Apple's design language: system font stack (SF, Segoe UI, PingFang / YaHei), size-specific tracking, translucent materials that respect reduced-transparency and high-contrast settings, iOS system colors, segmented controls and switches.
 - Replace number fields with sliders that show their value live (tap the value to type an exact number), including the electricity rate.
+- Count row-to-row shading on tilted racks (analytic shadow of the row in front for each sun position), so tight, steep rows are no longer scored as fully lit.
+- Add a best-layout search: it compares rack tilt and row gap with the user's facing and setback in a Web Worker, ranks the top three for "most energy" or "balanced" (each panel ≥ 90% of an ideal panel), and applies a choice as one undo step.
 
 - Load original NYC / TUM LoD2 CityGML roof and wall surfaces from a local spatial index.
 - Match exact footprints and retain NYC BIN; no GBA or DSM fallback in the 3D route.
