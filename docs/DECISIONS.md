@@ -42,4 +42,8 @@ Supersedes ADR-003, ADR-004, ADR-006 and ADR-007. The satellite map is used only
 
 ## ADR-011 — Face-based layout with self-shading filter
 
-Automatic layout works per planar roof face in face-local coordinates: a 0.2 m raster with setbacks by distance transform, a building-aligned grid chosen from 36 offsets, and annual beam-exposure scoring by ray casting against the building's own roof and walls. A position is kept when it reaches 80% of the best position's exposure, following the common 80% TSRF rule. Neighboring buildings and trees are not modeled, so real shading can be worse.
+Automatic layout works per planar roof face in face-local coordinates: a 0.2 m raster with setbacks by distance transform, a building-aligned grid chosen from 36 offsets, and annual beam-exposure scoring by ray casting against the building's own roof and walls. A position is kept when it reaches 80% of the best position's exposure, following the common 80% TSRF rule. Surrounding NYC / TUM buildings within 200 m that rise more than tan(3°) per meter of distance above the roof are added as occluders (ADR-012); trees and rooftop equipment are not modeled, so real shading can still be worse.
+
+## ADR-012 — Surrounding buildings as occluders
+
+Neighbor geometry is served separately (`/api/solar/neighbors`) so the selected model appears without waiting. The server keeps only buildings within 200 m whose top rises above the roof by more than the 3° minimum sun altitude allows for their distance, drops faces below the roof, and caches recent results. Rays test each building's bounding box before its triangles. The first automatic layout waits for the neighbors so it is scored once.

@@ -23,6 +23,7 @@ All notable changes will be documented in this file.
 - Restyle the interface after Apple's design language: system font stack (SF, Segoe UI, PingFang / YaHei), size-specific tracking, translucent materials that respect reduced-transparency and high-contrast settings, iOS system colors, segmented controls and switches.
 - Replace number fields with sliders that show their value live (tap the value to type an exact number), including the electricity rate.
 - Count row-to-row shading on tilted racks (analytic shadow of the row in front for each sun position), so tight, steep rows are no longer scored as fully lit.
+- Count shade from surrounding buildings: `/api/solar/neighbors` returns nearby NYC / TUM buildings within 200 m that rise high enough to shade the roof, used by auto layout and the optimizer, and drawn translucent in 3D with a Surroundings toggle. Occlusion tests use per-building bounding boxes to stay fast.
 - Add a best-layout search: it compares rack tilt and row gap with the user's facing and setback in a Web Worker, ranks the top three for "most energy" or "balanced" (each panel ≥ 90% of an ideal panel), and applies a choice as one undo step.
 
 - Load original NYC / TUM LoD2 CityGML roof and wall surfaces from a local spatial index.

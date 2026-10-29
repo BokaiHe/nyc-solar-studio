@@ -1,4 +1,4 @@
-import type { ConceptPanel, RoofModelData } from '@/lib/solar/types';
+import type { ConceptPanel, NeighborMesh, RoofModelData } from '@/lib/solar/types';
 import { autoLayout, createLayoutContext, type LayoutContext, type LayoutResult } from './auto-layout';
 import type { PanelSize } from './geometry';
 import type { LayoutParams } from './state';
@@ -46,8 +46,9 @@ export function optimizeLayout(
   panel: PanelSize,
   objective: Objective,
   onProgress?: (done: number, total: number) => void,
+  neighbors: NeighborMesh | null = null,
 ): OptimizerResult {
-  const context = createLayoutContext(model);
+  const context = createLayoutContext(model, neighbors);
   const current = evaluate(model, base, panel, context);
   const tried: LayoutOption[] = [];
   const total = TILT_OPTIONS.length * ROW_GAP_OPTIONS.length;

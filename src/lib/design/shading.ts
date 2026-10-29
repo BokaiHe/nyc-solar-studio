@@ -35,24 +35,56 @@ export function panelNormal(azimuthDegrees: number, tiltDegrees: number): Vec3 {
   return [Math.sin(azimuth) * Math.sin(tilt), Math.cos(tilt), -Math.cos(azimuth) * Math.sin(tilt)];
 }
 
-// Flat triangle soup with per-triangle bounds for fast "any hit" ray queries.
+// Triangles grouped by building, each group with a bounding box, for fast
+// "any hit" ray queries: a ray that misses a group's box skips its triangles.
+export type OccluderMesh = { positions: number[]; indices: number[]; groupStarts?: number[] };
+
 export class Occluders {
   private readonly data: Float32Array;
-  private readonly count: number;
+  private readonly groups: Array<{ from: number; to: number; min: Vec3; max: Vec3 }> = [];
 
-  constructor(positions: number[][], indices: number[][]) {
+  constructor(meshes: OccluderMesh[]) {
     const triangles: number[] = [];
-    positions.forEach((list, mesh) => {
-      const index = indices[mesh];
-      for (let t = 0; t < index.length; t += 3) {
-        for (let corner = 0; corner < 3; corner += 1) {
-          const v = index[t + corner] * 3;
-          triangles.push(list[v], list[v + 1], list[v + 2]);
+    for (const { positions, indices, groupStarts = [0] } of meshes) {
+      const starts = [...groupStarts, indices.length];
+      for (let group = 0; group < starts.length - 1; group += 1) {
+        const from = triangles.length / 9;
+        const min: Vec3 = [Infinity, Infinity, Infinity];
+        const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+        for (let t = starts[group]; t < starts[group + 1]; t += 1) {
+          const v = indices[t] * 3;
+          for (let axis = 0; axis < 3; axis += 1) {
+            const value = positions[v + axis];
+            triangles.push(value);
+            if (value < min[axis]) min[axis] = value;
+            if (value > max[axis]) max[axis] = value;
+          }
         }
+        const to = triangles.length / 9;
+        if (to > from) this.groups.push({ from, to, min, max });
       }
-    });
+    }
     this.data = Float32Array.from(triangles);
-    this.count = triangles.length / 9;
+  }
+
+  // Slab test: does the ray from `origin` along `direction` enter the box?
+  private static hitsBox(origin: Vec3, direction: Vec3, min: Vec3, max: Vec3): boolean {
+    let near = 0;
+    let far = Infinity;
+    for (let axis = 0; axis < 3; axis += 1) {
+      const d = direction[axis];
+      if (Math.abs(d) < 1e-12) {
+        if (origin[axis] < min[axis] || origin[axis] > max[axis]) return false;
+        continue;
+      }
+      let t1 = (min[axis] - origin[axis]) / d;
+      let t2 = (max[axis] - origin[axis]) / d;
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      near = Math.max(near, t1);
+      far = Math.min(far, t2);
+      if (near > far) return false;
+    }
+    return true;
   }
 
   // Möller–Trumbore, returning on the first hit beyond the start offset.
@@ -60,23 +92,26 @@ export class Occluders {
     const [ox, oy, oz] = origin;
     const [dx, dy, dz] = direction;
     const d = this.data;
-    for (let t = 0; t < this.count; t += 1) {
-      const i = t * 9;
-      // Skip triangles entirely below the ray start when the ray points up.
-      if (dy > 0 && d[i + 1] < oy && d[i + 4] < oy && d[i + 7] < oy) continue;
-      const e1x = d[i + 3] - d[i], e1y = d[i + 4] - d[i + 1], e1z = d[i + 5] - d[i + 2];
-      const e2x = d[i + 6] - d[i], e2y = d[i + 7] - d[i + 1], e2z = d[i + 8] - d[i + 2];
-      const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
-      const det = e1x * px + e1y * py + e1z * pz;
-      if (Math.abs(det) < EPSILON) continue;
-      const inv = 1 / det;
-      const tx = ox - d[i], ty = oy - d[i + 1], tz = oz - d[i + 2];
-      const u = (tx * px + ty * py + tz * pz) * inv;
-      if (u < 0 || u > 1) continue;
-      const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
-      const v = (dx * qx + dy * qy + dz * qz) * inv;
-      if (v < 0 || u + v > 1) continue;
-      if ((e2x * qx + e2y * qy + e2z * qz) * inv > EPSILON) return true;
+    for (const group of this.groups) {
+      if (!Occluders.hitsBox(origin, direction, group.min, group.max)) continue;
+      for (let t = group.from; t < group.to; t += 1) {
+        const i = t * 9;
+        // Skip triangles entirely below the ray start when the ray points up.
+        if (dy > 0 && d[i + 1] < oy && d[i + 4] < oy && d[i + 7] < oy) continue;
+        const e1x = d[i + 3] - d[i], e1y = d[i + 4] - d[i + 1], e1z = d[i + 5] - d[i + 2];
+        const e2x = d[i + 6] - d[i], e2y = d[i + 7] - d[i + 1], e2z = d[i + 8] - d[i + 2];
+        const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+        const det = e1x * px + e1y * py + e1z * pz;
+        if (Math.abs(det) < EPSILON) continue;
+        const inv = 1 / det;
+        const tx = ox - d[i], ty = oy - d[i + 1], tz = oz - d[i + 2];
+        const u = (tx * px + ty * py + tz * pz) * inv;
+        if (u < 0 || u > 1) continue;
+        const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+        const v = (dx * qx + dy * qy + dz * qz) * inv;
+        if (v < 0 || u + v > 1) continue;
+        if ((e2x * qx + e2y * qy + e2z * qz) * inv > EPSILON) return true;
+      }
     }
     return false;
   }

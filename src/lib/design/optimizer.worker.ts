@@ -3,20 +3,20 @@
 import { optimizeLayout, type Objective, type OptimizerResult } from './optimizer';
 import type { PanelSize } from './geometry';
 import type { LayoutParams } from './state';
-import type { RoofModelData } from '../solar/types';
+import type { NeighborMesh, RoofModelData } from '../solar/types';
 
-export type OptimizerRequest = { model: RoofModelData; params: LayoutParams; panel: PanelSize; objective: Objective };
+export type OptimizerRequest = { model: RoofModelData; neighbors: NeighborMesh | null; params: LayoutParams; panel: PanelSize; objective: Objective };
 export type OptimizerMessage =
   | { type: 'progress'; done: number; total: number }
   | { type: 'done'; result: OptimizerResult }
   | { type: 'error'; message: string };
 
 self.onmessage = (event: MessageEvent<OptimizerRequest>) => {
-  const { model, params, panel, objective } = event.data;
+  const { model, neighbors, params, panel, objective } = event.data;
   try {
     const result = optimizeLayout(model, params, panel, objective, (done, total) => {
       self.postMessage({ type: 'progress', done, total } satisfies OptimizerMessage);
-    });
+    }, neighbors);
     self.postMessage({ type: 'done', result } satisfies OptimizerMessage);
   } catch (error) {
     self.postMessage({ type: 'error', message: error instanceof Error ? error.message : 'Optimizer failed' } satisfies OptimizerMessage);

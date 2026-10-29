@@ -84,3 +84,13 @@ export type RoofModelData = {
   modelAddress?: string;
   modelRelease?: string;
 };
+
+// Surrounding buildings that can shade the roof, in the target's scene frame.
+// `buildingStarts` holds where each building's triangles begin in `indices`.
+export type NeighborMesh = {
+  positions: number[];
+  indices: number[];
+  buildingStarts: number[];
+  buildingCount: number;
+  radiusMeters: number;
+};

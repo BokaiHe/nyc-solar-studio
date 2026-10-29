@@ -6,12 +6,14 @@ import type { LayoutResult } from '@/lib/design/auto-layout';
 import { isUntouchedLayout, sameParams, type LayoutParams, type StudioAction, type StudioState } from '@/lib/design/state';
 import { Eyebrow, GroupTitle, PanelTitle, primaryButtonClass, secondaryButtonClass, SidePanel, SliderField, Switch } from './ui';
 
-export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBusy, layoutResult, onNext, optimizer }: {
+export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBusy, neighborStatus, neighborCount, layoutResult, onNext, optimizer }: {
   state: StudioState;
   capacityKw: number;
   dispatch: Dispatch<StudioAction>;
   onGenerate: () => void;
   layoutBusy: boolean;
+  neighborStatus: 'idle' | 'loading' | 'ready' | 'error';
+  neighborCount: number;
   layoutResult: Omit<LayoutResult, 'panels'> | null;
   onNext: () => void;
   // The best-layout search card, rendered under the layout status.
@@ -60,6 +62,14 @@ export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBus
           <div className="mt-3 flex items-center gap-2 text-[13px]">
             <span className={`h-2 w-2 shrink-0 rounded-full ${untouched ? 'bg-success' : 'bg-label-tertiary'}`} />
             <span className="text-label-secondary">{layoutBusy ? t.design.generating : untouched ? t.design.statusAuto : t.design.statusEdited}</span>
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-[12px] text-label-secondary">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${neighborStatus === 'ready' ? 'bg-accent' : neighborStatus === 'error' ? 'bg-warning' : 'animate-pulse bg-label-tertiary'}`} />
+            <span>
+              {neighborStatus === 'ready'
+                ? (neighborCount ? t.design.neighborsReady(neighborCount) : t.design.neighborsNone)
+                : neighborStatus === 'error' ? t.design.neighborsFailed : t.design.neighborsLoading}
+            </span>
           </div>
           {layoutResult && untouched && !layoutBusy && (
             <p className="mt-1 text-[12px] leading-5 text-label-secondary">

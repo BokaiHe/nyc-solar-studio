@@ -5,19 +5,19 @@ import { useSearchParams } from 'next/navigation';
 import { Map2DCanvas } from '@/components/map-2d-canvas';
 import { PlaceSearch } from '@/components/place-search';
 import { RoofScene3D, type ViewCommand } from '@/components/roof-scene-3d';
-import { autoLayout, rackAzimuth, type LayoutResult } from '@/lib/design/auto-layout';
+import { autoLayout, createLayoutContext, rackAzimuth, type LayoutResult } from '@/lib/design/auto-layout';
 import { DEFAULT_PANEL_SIZE, DEFAULT_PANEL_WATTS, FLAT_ROOF_DEGREES, panelCenter } from '@/lib/design/geometry';
 import { collides, rowPanelIds, similarPanelIds, snapToArray } from '@/lib/design/panel-ops';
-import { dominantAxisDegrees, extractRoofFaces, facingAzimuth, type Vec3 } from '@/lib/design/roof-faces';
+import { facingAzimuth, type Vec3 } from '@/lib/design/roof-faces';
 import { encodeSharedDesign, parseSharedDesign, type SharedDesign } from '@/lib/design/share';
 import type { LayoutOption, Objective } from '@/lib/design/optimizer';
 import type { OptimizerMessage, OptimizerRequest } from '@/lib/design/optimizer.worker';
-import { canDesign, initialStudioState, isUntouchedLayout, sameParams, studioReducer, type LayoutParams, type Tool } from '@/lib/design/state';
+import { canDesign, initialStudioState, isUntouchedLayout, sameParams, shadingKey, studioReducer, type LayoutParams, type Tool } from '@/lib/design/state';
 import { useI18n } from '@/lib/i18n';
 import { summarizeDesign } from '@/lib/solar/calculations';
 import { DEFAULT_ELECTRICITY_RATE_USD_PER_KWH, DEMO_BUILDINGS } from '@/lib/solar/config';
 import { currentNewYorkDateAndMinute, getSunSnapshot, newYorkDateTimeToDate, panelDirectLightFactor } from '@/lib/solar/sun';
-import type { BuildingInsights, ConceptPanel, LatLng, RoofModelData } from '@/lib/solar/types';
+import type { BuildingInsights, ConceptPanel, LatLng, NeighborMesh, RoofModelData } from '@/lib/solar/types';
 import { DesignPanel } from './design-panel';
 import { OptimizeCard, type OptimizerState } from './optimize-card';
 import { ResultsPanel } from './results-panel';
@@ -62,6 +62,7 @@ export function SolarStudio() {
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [layoutResult, setLayoutResult] = useState<Omit<LayoutResult, 'panels'> | null>(null);
   const [view, setView] = useState<ViewCommand>({ kind: 'reset', nonce: 0 });
+  const [showNeighbors, setShowNeighbors] = useState(true);
   const [objective, setObjective] = useState<Objective>('max-total');
   const [optimizer, setOptimizer] = useState<(OptimizerState & { base?: LayoutParams })>({ status: 'idle' });
   const workerRef = useRef<Worker | null>(null);
@@ -108,6 +109,15 @@ export function SolarStudio() {
       panels: sameBuilding ? sharedDesign.panels : undefined,
       notice: sharedDesign && !sameBuilding ? 'sharedModelChanged' : null,
     });
+    // Surrounding buildings arrive separately so the model shows without waiting.
+    const buildingId = model.value.nycBuildingId;
+    if (!buildingId) return;
+    try {
+      const neighbors = await fetchJson<NeighborMesh>(`/api/solar/neighbors?id=${encodeURIComponent(buildingId)}`);
+      if (request === requestRef.current) dispatch({ type: 'neighbors-loaded', buildingId, neighbors });
+    } catch {
+      if (request === requestRef.current) dispatch({ type: 'neighbors-failed', buildingId });
+    }
   }, []);
 
   useEffect(() => {
@@ -146,7 +156,10 @@ export function SolarStudio() {
     ? { widthMeters: potential.panelWidthMeters, heightMeters: potential.panelHeightMeters }
     : DEFAULT_PANEL_SIZE, [potential]);
   const minSpacing = panelSize.widthMeters * 0.9;
-  const roofAxis = useMemo(() => model ? dominantAxisDegrees(extractRoofFaces(model)) : null, [model]);
+  // Shared by live updates, so roof analysis and sun visibility are reused.
+  const layoutContext = useMemo(() => model ? createLayoutContext(model, building.neighbors) : null, [building.neighbors, model]);
+  const roofAxis = layoutContext?.axisDegrees ?? null;
+  const shading = shadingKey(building);
   const sun = useMemo(
     () => location ? getSunSnapshot(newYorkDateTimeToDate(dateIso, minuteOfDay), location.latitude, location.longitude) : null,
     [dateIso, location, minuteOfDay],
@@ -161,23 +174,24 @@ export function SolarStudio() {
   );
 
   const generate = useCallback((record: boolean) => {
-    if (!model) return;
+    if (!model || !layoutContext) return;
     setLayoutBusy(true);
     const layoutParams = params;
     // Yield a frame so the busy state paints before the synchronous layout runs.
     window.setTimeout(() => {
-      const { panels: generated, ...result } = autoLayout(model, layoutParams, panelSize);
-      dispatch({ type: 'generated', panels: generated, params: layoutParams, record });
+      const { panels: generated, ...result } = autoLayout(model, layoutParams, panelSize, layoutContext);
+      dispatch({ type: 'generated', panels: generated, params: layoutParams, shading, record });
       setLayoutResult(result);
       setLayoutBusy(false);
     }, 30);
-  }, [model, panelSize, params]);
+  }, [layoutContext, model, panelSize, params, shading]);
 
   // Fill the roof on first entry, and keep an untouched layout in step with
   // the settings. Hand edits pause this; the panel then offers to apply.
   const untouched = isUntouchedLayout(state);
-  const fresh = state.generated === null && panels.length === 0 && state.past.length === 0;
-  const liveTarget = untouched && state.generated && !sameParams(state.generated.params, params);
+  // The first fill waits for the surrounding buildings so it is scored once, with their shade.
+  const fresh = state.generated === null && panels.length === 0 && state.past.length === 0 && building.neighborStatus !== 'loading';
+  const liveTarget = untouched && state.generated && (!sameParams(state.generated.params, params) || state.generated.shading !== shading);
   useEffect(() => {
     if (step !== 'design' || !model || layoutBusy || !(fresh || liveTarget)) return;
     const timer = window.setTimeout(() => generate(fresh), fresh ? 0 : LIVE_LAYOUT_DELAY_MS);
@@ -268,15 +282,15 @@ export function SolarStudio() {
       setOptimizer({ status: 'error' });
       worker.terminate();
     };
-    worker.postMessage({ model, params: base, panel: panelSize, objective } satisfies OptimizerRequest);
-  }, [model, objective, panelSize, params]);
+    worker.postMessage({ model, neighbors: building.neighbors, params: base, panel: panelSize, objective } satisfies OptimizerRequest);
+  }, [building.neighbors, model, objective, panelSize, params]);
 
   // Apply an option's settings and its already computed layout as one undo step.
   const applyOption = useCallback((option: LayoutOption) => {
     dispatch({ type: 'set-params', params: option.params });
-    dispatch({ type: 'generated', panels: option.panels, params: option.params, record: true });
+    dispatch({ type: 'generated', panels: option.panels, params: option.params, shading, record: true });
     setLayoutResult(option.result);
-  }, []);
+  }, [shading]);
 
   // Results go stale when settings the search held fixed (facing, setback…) change.
   const optimizerView: OptimizerState = optimizer.status === 'done' && optimizer.base
@@ -342,6 +356,7 @@ export function SolarStudio() {
           editable={editing}
           view={view}
           planPanel={planPanel}
+          neighbors={showNeighbors ? building.neighbors : null}
           {...sceneHandlers}
         />
       )}
@@ -391,6 +406,9 @@ export function SolarStudio() {
               onToolChange={(next) => dispatch({ type: 'set-tool', tool: next })}
               onResetView={() => setView((current) => ({ kind: 'reset', nonce: current.nonce + 1 }))}
               onTopView={() => setView((current) => ({ kind: 'top', nonce: current.nonce + 1 }))}
+              neighborsAvailable={building.neighborStatus === 'ready' && (building.neighbors?.buildingCount ?? 0) > 0}
+              showNeighbors={showNeighbors}
+              onToggleNeighbors={() => setShowNeighbors((value) => !value)}
             />
           ) : <span />}
           {mapError && step === 'select' ? (
@@ -404,6 +422,8 @@ export function SolarStudio() {
               dispatch={dispatch}
               onGenerate={() => generate(true)}
               layoutBusy={layoutBusy}
+              neighborStatus={building.neighborStatus}
+              neighborCount={building.neighbors?.buildingCount ?? 0}
               layoutResult={layoutResult}
               onNext={() => dispatch({ type: 'set-step', step: 'results' })}
               optimizer={(

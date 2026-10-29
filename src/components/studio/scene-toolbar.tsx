@@ -10,12 +10,15 @@ const TOOLS: Array<{ tool: Tool; icon: string; key: string }> = [
   { tool: 'erase', icon: '⌫', key: 'E' },
 ];
 
-export function SceneToolbar({ tool, editable, onToolChange, onResetView, onTopView }: {
+export function SceneToolbar({ tool, editable, onToolChange, onResetView, onTopView, neighborsAvailable, showNeighbors, onToggleNeighbors }: {
   tool: Tool;
   editable: boolean;
   onToolChange: (tool: Tool) => void;
   onResetView: () => void;
   onTopView: () => void;
+  neighborsAvailable: boolean;
+  showNeighbors: boolean;
+  onToggleNeighbors: () => void;
 }) {
   const { t } = useI18n();
   const plain = 'flex w-full items-center gap-2 rounded-[9px] px-2.5 py-1.5 text-left text-[13px] font-medium text-label transition hover:bg-fill active:scale-[0.97]';
@@ -48,6 +51,13 @@ export function SceneToolbar({ tool, editable, onToolChange, onResetView, onTopV
         <button type="button" title={t.tools.topView} onClick={onTopView} className={plain}>
           <span className="w-4 text-center text-label-secondary">⊙</span><span className="hidden sm:inline">{t.tools.topView}</span>
         </button>
+        {neighborsAvailable && (
+          <button type="button" aria-pressed={showNeighbors} title={t.tools.neighbors} onClick={onToggleNeighbors} className={plain}>
+            <span className={`w-4 text-center ${showNeighbors ? 'text-accent' : 'text-label-tertiary'}`}>▦</span>
+            <span className="hidden sm:inline">{t.tools.neighbors}</span>
+            <span className={`ml-auto hidden h-2 w-2 rounded-full sm:inline ${showNeighbors ? 'bg-accent' : 'bg-fill-strong'}`} />
+          </button>
+        )}
       </div>
     </div>
   );

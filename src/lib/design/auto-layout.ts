@@ -1,4 +1,4 @@
-import type { ConceptPanel, RoofModelData } from '@/lib/solar/types';
+import type { ConceptPanel, NeighborMesh, RoofModelData } from '@/lib/solar/types';
 import { COLUMN_GAP, FLAT_ROOF_DEGREES, FLUSH_ROW_GAP, panelCenter, type PanelSize } from './geometry';
 import { dominantAxisDegrees, extractRoofFaces, planeHeight, type RoofFace, type Vec3 } from './roof-faces';
 import { annualSunSamples, exposure, idealPanelExposure, Occluders, panelNormal, VisibilityCache, type RowShade, type SunSample } from './shading';
@@ -23,18 +23,28 @@ export type LayoutContext = {
   samples: SunSample[];
   visibility: VisibilityCache;
   idealPanelScore: number;
+  // Surrounding buildings counted as shade, if they were loaded.
+  neighborCount: number;
 };
 
-export function createLayoutContext(model: Pick<RoofModelData, 'positions' | 'indices' | 'wallPositions' | 'wallIndices' | 'center'>): LayoutContext {
+export function createLayoutContext(
+  model: Pick<RoofModelData, 'positions' | 'indices' | 'wallPositions' | 'wallIndices' | 'center'>,
+  neighbors: NeighborMesh | null = null,
+): LayoutContext {
   const faces = extractRoofFaces(model);
   const samples = annualSunSamples(model.center);
-  const occluders = new Occluders([model.positions, model.wallPositions], [model.indices, model.wallIndices]);
+  const occluders = new Occluders([
+    { positions: model.positions, indices: model.indices },
+    { positions: model.wallPositions, indices: model.wallIndices },
+    ...(neighbors ? [{ positions: neighbors.positions, indices: neighbors.indices, groupStarts: neighbors.buildingStarts }] : []),
+  ]);
   return {
     faces,
     axisDegrees: faces.length ? dominantAxisDegrees(faces) : null,
     samples,
     visibility: new VisibilityCache(samples, occluders),
     idealPanelScore: idealPanelExposure(samples),
+    neighborCount: neighbors?.buildingCount ?? 0,
   };
 }
 
@@ -286,8 +296,8 @@ function faceCandidates(faces: RoofFace[], index: number, frame: Frame, params: 
 }
 
 // Fill each roof face with a tidy grid aligned to the building, then keep the
-// positions with good annual sun exposure. Shading counts the building itself
-// and the row in front; neighboring buildings and trees are not modeled.
+// positions with good annual sun exposure. Shading counts the building itself,
+// the row in front and, when provided in the context, surrounding buildings.
 export function autoLayout(
   model: Pick<RoofModelData, 'positions' | 'indices' | 'wallPositions' | 'wallIndices' | 'center'>,
   params: LayoutParams,

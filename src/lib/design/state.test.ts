@@ -57,7 +57,7 @@ describe('studioReducer', () => {
   });
 
   it('supports replace, add and toggle selection', () => {
-    const base = run([...loaded, { type: 'generated', panels: [panel(1, 0), panel(2, 2), panel(3, 4)], params: DEFAULT_PARAMS, record: true }]);
+    const base = run([...loaded, { type: 'generated', panels: [panel(1, 0), panel(2, 2), panel(3, 4)], params: DEFAULT_PARAMS, shading: 'self', record: true }]);
     const added = run([{ type: 'select', ids: [1], mode: 'replace' }, { type: 'select', ids: [3], mode: 'add' }], base);
     expect(added.selectedIds.sort()).toEqual([1, 3]);
     expect(run([{ type: 'select', ids: [1], mode: 'toggle' }], added).selectedIds).toEqual([3]);
@@ -65,7 +65,7 @@ describe('studioReducer', () => {
   });
 
   it('rotates and flips a whole selection in one undo step', () => {
-    const base = run([...loaded, { type: 'generated', panels: [panel(1, 0), panel(2, 2)], params: DEFAULT_PARAMS, record: true }]);
+    const base = run([...loaded, { type: 'generated', panels: [panel(1, 0), panel(2, 2)], params: DEFAULT_PARAMS, shading: 'self', record: true }]);
     const turned = run([
       { type: 'transform-panels', ids: [1, 2], azimuthDelta: -5 },
       { type: 'transform-panels', ids: [2], toggleLandscape: true },
@@ -76,7 +76,7 @@ describe('studioReducer', () => {
   });
 
   it('undoes a whole group move in one step', () => {
-    const base = run([...loaded, { type: 'generated', panels: [panel(1, 0), panel(2, 2)], params: DEFAULT_PARAMS, record: true }]);
+    const base = run([...loaded, { type: 'generated', panels: [panel(1, 0), panel(2, 2)], params: DEFAULT_PARAMS, shading: 'self', record: true }]);
     const moved = run([
       { type: 'checkpoint' },
       { type: 'move-panels', positions: [[1, [1, 5, 0]], [2, [3, 5, 0]]] },
@@ -90,7 +90,7 @@ describe('studioReducer', () => {
   });
 
   it('treats an erase stroke as one undo step', () => {
-    const base = run([...loaded, { type: 'generated', panels: [panel(1, 0), panel(2, 2), panel(3, 4)], params: DEFAULT_PARAMS, record: true }]);
+    const base = run([...loaded, { type: 'generated', panels: [panel(1, 0), panel(2, 2), panel(3, 4)], params: DEFAULT_PARAMS, shading: 'self', record: true }]);
     const erased = run([
       { type: 'checkpoint' },
       { type: 'remove-panels', ids: [1], record: false },
@@ -101,10 +101,10 @@ describe('studioReducer', () => {
   });
 
   it('replaces an untouched generated layout live and stops once edited by hand', () => {
-    const first = run([...loaded, { type: 'generated', panels: [panel(1, 0)], params: DEFAULT_PARAMS, record: true }]);
+    const first = run([...loaded, { type: 'generated', panels: [panel(1, 0)], params: DEFAULT_PARAMS, shading: 'self', record: true }]);
     expect(isUntouchedLayout(first)).toBe(true);
 
-    const live = run([{ type: 'generated', panels: [panel(1, 0), panel(2, 2)], params: { ...DEFAULT_PARAMS, tiltDegrees: 15 }, record: false }], first);
+    const live = run([{ type: 'generated', panels: [panel(1, 0), panel(2, 2)], params: { ...DEFAULT_PARAMS, tiltDegrees: 15 }, shading: 'self', record: false }], first);
     expect(live.past).toHaveLength(first.past.length);
     expect(isUntouchedLayout(live)).toBe(true);
 
@@ -115,7 +115,7 @@ describe('studioReducer', () => {
   });
 
   it('clears selection when switching away from the select tool', () => {
-    const base = run([...loaded, { type: 'generated', panels: [panel(1, 0)], params: DEFAULT_PARAMS, record: true }, { type: 'select', ids: [1], mode: 'replace' }]);
+    const base = run([...loaded, { type: 'generated', panels: [panel(1, 0)], params: DEFAULT_PARAMS, shading: 'self', record: true }, { type: 'select', ids: [1], mode: 'replace' }]);
     expect(studioReducer(base, { type: 'set-tool', tool: 'erase' }).selectedIds).toEqual([]);
   });
 
@@ -125,5 +125,15 @@ describe('studioReducer', () => {
       { type: 'select-building', location, label: 'Next' },
     ]);
     expect(state.params.tiltDegrees).toBe(20);
+  });
+
+  it('loads neighbors only for the building on screen', () => {
+    const neighbors = { positions: [], indices: [], buildingStarts: [], buildingCount: 4, radiusMeters: 200 };
+    const ready = run([...loaded, { type: 'neighbors-loaded', buildingId: 'b1', neighbors }]);
+    expect(ready.building.neighborStatus).toBe('ready');
+    expect(ready.building.neighbors?.buildingCount).toBe(4);
+
+    const stale = run([...loaded, { type: 'neighbors-loaded', buildingId: 'other', neighbors }]);
+    expect(stale.building.neighborStatus).toBe('loading');
   });
 });

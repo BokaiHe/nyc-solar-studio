@@ -1,4 +1,4 @@
-import type { BuildingInsights, ConceptPanel, LatLng, RoofModelData } from '@/lib/solar/types';
+import type { BuildingInsights, ConceptPanel, LatLng, NeighborMesh, RoofModelData } from '@/lib/solar/types';
 
 export type Step = 'select' | 'design' | 'results';
 export type BuildingStatus = 'idle' | 'loading' | 'ready' | 'no-model' | 'error';
@@ -28,6 +28,9 @@ export type Building = {
   model: RoofModelData | null;
   // Google Solar data is optional context (panel size, grid factor); design never waits on it.
   insights: BuildingInsights | null;
+  // Surrounding buildings that can shade the roof, loaded after the model.
+  neighbors: NeighborMesh | null;
+  neighborStatus: 'idle' | 'loading' | 'ready' | 'error';
 };
 
 export type StudioState = {
@@ -39,9 +42,10 @@ export type StudioState = {
   selectedIds: number[];
   tool: Tool;
   params: LayoutParams;
-  // The last generated layout and the settings that produced it. While
-  // `panels` is still this exact array, the layout is untouched by hand.
-  generated: { panels: ConceptPanel[]; params: LayoutParams } | null;
+  // The last generated layout, the settings and the shading data (see
+  // shadingKey) that produced it. While `panels` is still this exact array,
+  // the layout is untouched by hand.
+  generated: { panels: ConceptPanel[]; params: LayoutParams; shading: string } | null;
   notice: NoticeKey | null;
 };
 
@@ -49,11 +53,13 @@ export type StudioAction =
   | { type: 'select-building'; location: LatLng; label: string }
   | { type: 'building-loaded'; location: LatLng; model: RoofModelData; insights: BuildingInsights | null; panels?: ConceptPanel[]; notice?: NoticeKey | null }
   | { type: 'building-failed'; status: 'no-model' | 'error' }
+  | { type: 'neighbors-loaded'; buildingId: string; neighbors: NeighborMesh }
+  | { type: 'neighbors-failed'; buildingId: string }
   | { type: 'set-step'; step: Step }
   | { type: 'set-tool'; tool: Tool }
   | { type: 'set-params'; params: Partial<LayoutParams> }
   // `record: false` replaces an untouched generated layout without a new undo step.
-  | { type: 'generated'; panels: ConceptPanel[]; params: LayoutParams; record: boolean }
+  | { type: 'generated'; panels: ConceptPanel[]; params: LayoutParams; shading: string; record: boolean }
   | { type: 'clear-panels' }
   | { type: 'add-panel'; panel: Omit<ConceptPanel, 'id'>; minSpacing: number }
   | { type: 'transform-panels'; ids: number[]; azimuthDelta?: number; toggleLandscape?: boolean }
@@ -80,7 +86,7 @@ const HISTORY_LIMIT = 50;
 
 export const initialStudioState: StudioState = {
   step: 'select',
-  building: { status: 'idle', location: null, label: '', model: null, insights: null },
+  building: { status: 'idle', location: null, label: '', model: null, insights: null, neighbors: null, neighborStatus: 'idle' },
   panels: [],
   past: [],
   future: [],
@@ -121,6 +127,12 @@ export function isUntouchedLayout(state: StudioState): boolean {
   return state.generated !== null && state.panels === state.generated.panels;
 }
 
+// Identifies the shading data a layout was scored with, so a layout made
+// before the surrounding buildings arrived can be refreshed once they do.
+export function shadingKey(building: Building): string {
+  return building.neighborStatus === 'ready' && building.neighbors ? `neighbors:${building.neighbors.buildingCount}` : 'self';
+}
+
 export function sameParams(a: LayoutParams, b: LayoutParams): boolean {
   return (Object.keys(a) as Array<keyof LayoutParams>).every((key) => a[key] === b[key]);
 }
@@ -132,13 +144,13 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         ...initialStudioState,
         params: state.params,
         tool: state.tool,
-        building: { status: 'loading', location: action.location, label: action.label, model: null, insights: null },
+        building: { status: 'loading', location: action.location, label: action.label, model: null, insights: null, neighbors: null, neighborStatus: 'idle' },
       };
     case 'building-loaded':
       if (state.building.status !== 'loading') return state;
       return {
         ...state,
-        building: { ...state.building, status: 'ready', location: action.location, model: action.model, insights: action.insights },
+        building: { ...state.building, status: 'ready', location: action.location, model: action.model, insights: action.insights, neighborStatus: action.model.nycBuildingId ? 'loading' : 'error' },
         panels: action.panels ?? [],
         past: [],
         future: [],
@@ -148,6 +160,16 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'building-failed':
       if (state.building.status !== 'loading') return state;
       return { ...state, building: { ...state.building, status: action.status } };
+    case 'neighbors-loaded':
+    case 'neighbors-failed':
+      // A late answer for a building the user already left is ignored.
+      if (state.building.model?.nycBuildingId !== action.buildingId) return state;
+      return {
+        ...state,
+        building: action.type === 'neighbors-loaded'
+          ? { ...state.building, neighbors: action.neighbors, neighborStatus: 'ready' }
+          : { ...state.building, neighbors: null, neighborStatus: 'error' },
+      };
     case 'set-step':
       if (action.step !== 'select' && !canDesign(state)) return state;
       return { ...state, step: action.step, selectedIds: action.step === 'design' ? state.selectedIds : [] };
@@ -156,7 +178,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'set-params':
       return { ...state, params: { ...state.params, ...action.params } };
     case 'generated': {
-      const generated = { panels: action.panels, params: action.params };
+      const generated = { panels: action.panels, params: action.params, shading: action.shading };
       if (!action.record) return { ...state, panels: action.panels, selectedIds: [], generated };
       return { ...commit(state, action.panels, []), generated };
     }

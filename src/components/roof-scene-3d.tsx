@@ -6,7 +6,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import * as THREE from 'three';
 import { createSurfaceGeometry, panelCenter, panelYaw, rackCenterHeight, roofTopHeight, type PanelSize } from '@/lib/design/geometry';
 import type { SelectMode, Tool } from '@/lib/design/state';
-import type { ConceptPanel, RoofModelData, SunSnapshot } from '@/lib/solar/types';
+import type { ConceptPanel, NeighborMesh, RoofModelData, SunSnapshot } from '@/lib/solar/types';
 
 type Position = [number, number, number];
 type PanelPlan = { panel: Omit<ConceptPanel, 'id'>; valid: boolean };
@@ -23,6 +23,8 @@ type RoofScene3DProps = {
   view: ViewCommand;
   // Resolves where a new panel would go for a roof hit, snapped and checked for overlap.
   planPanel: (point: Position, normal: Position) => PanelPlan;
+  // Surrounding buildings, drawn as context and casting shadows; null hides them.
+  neighbors: NeighborMesh | null;
   onAddPanel: (panel: Omit<ConceptPanel, 'id'>) => void;
   onSelect: (ids: number[], mode: SelectMode) => void;
   onCheckpoint: () => void;
@@ -200,7 +202,7 @@ type Gesture =
   | { kind: 'erase'; erased: boolean };
 
 function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null) => void; setCursor: (cursor: string) => void }) {
-  const { model, panels, panelSize, selectedIds, sun, tool, editable, view, planPanel, onAddPanel, onSelect, onCheckpoint, onMovePanels, onCancelGesture, onRemovePanels, setMarquee, setCursor } = props;
+  const { model, panels, panelSize, selectedIds, sun, tool, editable, view, planPanel, neighbors, onAddPanel, onSelect, onCheckpoint, onMovePanels, onCancelGesture, onRemovePanels, setMarquee, setCursor } = props;
   const { camera, gl, raycaster } = useThree();
   const viewport = useThree((state) => state.size);
   // Portrait screens show less width, so back the camera off to keep the roof in frame.
@@ -215,6 +217,8 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
 
   const roofGeometry = useMemo(() => createSurfaceGeometry(model.positions, model.indices), [model.indices, model.positions]);
   const wallGeometry = useMemo(() => createSurfaceGeometry(model.wallPositions, model.wallIndices), [model.wallIndices, model.wallPositions]);
+  const neighborGeometry = useMemo(() => neighbors?.indices.length ? createSurfaceGeometry(neighbors.positions, neighbors.indices) : null, [neighbors]);
+  useEffect(() => () => neighborGeometry?.dispose(), [neighborGeometry]);
   const boxes = useMemo(() => ({
     portrait: new THREE.BoxGeometry(panelSize.widthMeters, PANEL_THICKNESS, panelSize.heightMeters),
     landscape: new THREE.BoxGeometry(panelSize.heightMeters, PANEL_THICKNESS, panelSize.widthMeters),
@@ -233,10 +237,12 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
   const materials = usePanelMaterials(glint);
   const altitude = sun ? THREE.MathUtils.degToRad(Math.max(-5, sun.altitudeDegrees)) : Math.PI / 4;
   const azimuth = sun ? THREE.MathUtils.degToRad(sun.azimuthDegrees) : Math.PI;
+  // With neighbors shown, the light's shadow box widens so their shadows reach the roof.
+  const shadowSize = neighborGeometry ? Math.max(size, neighbors?.radiusMeters ?? 0) : size;
   const lightPosition: Position = [
-    Math.sin(azimuth) * Math.cos(altitude) * size,
-    Math.max(8, Math.sin(altitude) * size),
-    -Math.cos(azimuth) * Math.cos(altitude) * size,
+    Math.sin(azimuth) * Math.cos(altitude) * shadowSize,
+    Math.max(8, Math.sin(altitude) * shadowSize),
+    -Math.cos(azimuth) * Math.cos(altitude) * shadowSize,
   ];
 
   // Camera commands: frame the roof obliquely, or look straight down on it.
@@ -444,9 +450,9 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
     <>
       <color attach="background" args={['#e8edf3']} />
       <ambientLight intensity={0.85} />
-      <directionalLight position={lightPosition} intensity={sun?.daylight ? 2.1 : 0.25} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-camera-left={-size} shadow-camera-right={size} shadow-camera-top={size} shadow-camera-bottom={-size} shadow-camera-far={size * 6} shadow-normalBias={0.15} shadow-bias={-0.0001} />
+      <directionalLight position={lightPosition} intensity={sun?.daylight ? 2.1 : 0.25} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-camera-left={-shadowSize} shadow-camera-right={shadowSize} shadow-camera-top={shadowSize} shadow-camera-bottom={-shadowSize} shadow-camera-far={shadowSize * 6} shadow-normalBias={0.15} shadow-bias={-0.0001} />
       {/* Design happens on the roof, so frame the roof footprint, not the whole tower. */}
-      <PerspectiveCamera makeDefault position={[footprint * initialFit * 1.1, roofTop + footprint * initialFit * 1.1, footprint * initialFit * 1.3]} fov={40} near={0.1} far={size * 10} />
+      <PerspectiveCamera makeDefault position={[footprint * initialFit * 1.1, roofTop + footprint * initialFit * 1.1, footprint * initialFit * 1.3]} fov={40} near={0.1} far={Math.max(size * 10, 1500)} />
       <OrbitControls ref={controlsRef as never} makeDefault target={[0, roofTop, 0]} minDistance={Math.max(4, footprint * 0.12)} maxDistance={size * 4} maxPolarAngle={Math.PI * 0.49} />
       <mesh ref={roofRef} geometry={roofGeometry} castShadow receiveShadow onPointerDown={onRoofDown} onPointerMove={onRoofMove} onPointerOut={() => setGhost(null)} onClick={onRoofClick}>
         <meshStandardMaterial color="#e2e8f0" roughness={0.78} metalness={0.02} side={THREE.DoubleSide} flatShading />
@@ -454,6 +460,13 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
       <mesh geometry={wallGeometry} castShadow receiveShadow>
         <meshStandardMaterial color="#a8b2bf" roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
+      {neighborGeometry && (
+        // Translucent so towers next to the camera never hide the roof being designed;
+        // they still cast shadows onto it.
+        <mesh geometry={neighborGeometry} castShadow raycast={() => null} renderOrder={1}>
+          <meshStandardMaterial color="#c3cad4" roughness={0.95} side={THREE.DoubleSide} transparent opacity={0.38} depthWrite={false} />
+        </mesh>
+      )}
       {panels.map((panel) => (
         <PanelMesh
           key={panel.id}
