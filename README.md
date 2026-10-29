@@ -50,6 +50,8 @@ python scripts/index-nyc-citygml.py --archive data/raw/nyc-tum/NYC_Buildings_LoD
 npm run data:build-footprints
 ```
 
+研究区边界（地图上的蓝线）由 `npm run data:build-coverage` 从轮廓索引生成，结果已提交在 `src/lib/nyc/coverage.ts`，数据更新后再运行即可。
+
 默认数据库为 data/processed/nyc-citygml.sqlite；轮廓索引为 data/processed/nyc-footprints.sqlite（可用 NYC_FOOTPRINTS_DB_PATH 指定）。缺少轮廓索引时地图仍可点击选楼，只是不显示轮廓。服务端环境变量 NYC_TUM_DB_PATH 可指定完整路径。原始数据及数据库排除在 Git 外。旧 GBA 预处理脚本已移除，需复现时查看 v0.6.1 标签。
 
 ## 分享与部署

@@ -1,7 +1,7 @@
 import type { BuildingInsights, ConceptPanel, LatLng, NeighborMesh, RoofModelData } from '@/lib/solar/types';
 
 export type Step = 'select' | 'design' | 'results';
-export type BuildingStatus = 'idle' | 'loading' | 'ready' | 'no-model' | 'error';
+export type BuildingStatus = 'idle' | 'loading' | 'ready' | 'no-model' | 'outside' | 'error';
 export type NoticeKey = 'sharedModelChanged';
 export type Tool = 'select' | 'add' | 'erase';
 export type SelectMode = 'replace' | 'add' | 'toggle';
@@ -52,7 +52,7 @@ export type StudioState = {
 export type StudioAction =
   | { type: 'select-building'; location: LatLng; label: string }
   | { type: 'building-loaded'; location: LatLng; model: RoofModelData; insights: BuildingInsights | null; panels?: ConceptPanel[]; notice?: NoticeKey | null }
-  | { type: 'building-failed'; status: 'no-model' | 'error' }
+  | { type: 'building-failed'; status: 'no-model' | 'outside' | 'error' }
   | { type: 'neighbors-loaded'; buildingId: string; neighbors: NeighborMesh }
   | { type: 'neighbors-failed'; buildingId: string }
   | { type: 'set-step'; step: Step }

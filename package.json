@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "data:build-footprints": "node scripts/index-nyc-footprints.mjs",
-    "data:build-climate": "node scripts/build-nyc-climate.mjs"
+    "data:build-climate": "node scripts/build-nyc-climate.mjs",
+    "data:build-coverage": "node scripts/build-coverage.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",

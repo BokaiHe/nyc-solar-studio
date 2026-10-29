@@ -13,6 +13,7 @@ import { facingAzimuth, type Vec3 } from '@/lib/design/roof-faces';
 import { encodeSharedDesign, parseSharedDesign, type SharedDesign } from '@/lib/design/share';
 import type { LayoutOption, Objective } from '@/lib/design/optimizer';
 import type { OptimizerMessage, OptimizerRequest } from '@/lib/design/optimizer.worker';
+import { insideStudyArea, STUDY_AREA_BUILDINGS } from '@/lib/nyc/study-area';
 import { canDesign, initialStudioState, isUntouchedLayout, sameParams, shadingKey, studioReducer, type LayoutParams, type Tool } from '@/lib/design/state';
 import { useI18n } from '@/lib/i18n';
 import { summarizeDesign } from '@/lib/solar/calculations';
@@ -85,6 +86,11 @@ export function SolarStudio() {
     setOptimizer({ status: 'idle' });
     setExamplesOpen(false);
     if (!sharedDesign && window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+    // No model exists outside the study area; say so without asking the server.
+    if (!buildingId && !sharedDesign && !insideStudyArea(location)) {
+      dispatch({ type: 'building-failed', status: 'outside' });
+      return;
+    }
     const query = `lat=${location.latitude}&lng=${location.longitude}`;
     const [direct, solar] = await Promise.allSettled([
       fetchJson<RoofModelData>(buildingId ? `/api/solar/roof-model?id=${encodeURIComponent(buildingId)}` : `/api/solar/roof-model?${query}`),
@@ -474,7 +480,7 @@ export function SolarStudio() {
             <p className={`${pillClass} px-3 py-1.5 text-[12px] ${hoveredBuilding ? 'font-medium text-label' : 'text-label-secondary'}`}>
               {hoveredBuilding
                 ? t.map.hover(hoveredBuilding.address || t.places.fallback, hoveredBuilding.height)
-                : outlinesVisible ? t.map.hintPick : t.map.hintZoom}
+                : outlinesVisible ? t.map.hintPick : t.map.hintZoom(STUDY_AREA_BUILDINGS.toLocaleString())}
             </p>
           ) : (
             <>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from '@/lib/google-maps-loader';
 import { useI18n } from '@/lib/i18n';
+import { STUDY_AREA_RINGS } from '@/lib/nyc/study-area';
 import type { LatLng } from '@/lib/solar/types';
 
 export type FootprintInfo = { id: string; address: string | null; height: number | null };
@@ -25,6 +26,12 @@ const NYC_CENTER = { lat: 40.7128, lng: -74.006 };
 // Building outlines appear from street level, where a view spans under ~1.5 km.
 const OUTLINE_MIN_ZOOM = 17;
 const ACCENT = '#007aff';
+// Darken everything outside the study area until street level, then fade.
+const MASK_FADE_ZOOM = 15;
+// A frame around the region; the study-area rings are holes cut into it.
+const MASK_FRAME = [
+  { lat: 42.5, lng: -76.5 }, { lat: 42.5, lng: -71.5 }, { lat: 38.5, lng: -71.5 }, { lat: 38.5, lng: -76.5 },
+];
 
 type FootprintResponse = { footprints: Array<{ id: string; height: number | null; address: string | null; rings: number[][] }> };
 
@@ -64,6 +71,16 @@ export function Map2DCanvas({ apiKey, location, buildingBounds, showMarker, sele
           gestureHandling: 'greedy',
           keyboardShortcuts: false,
         });
+        // Study area: a dark mask with the covered area cut out, and a blue edge.
+        const holes = STUDY_AREA_RINGS.map((ring) => ring.map(([lng, lat]) => ({ lat, lng })));
+        const mask = new google.maps.Polygon({ map, paths: [MASK_FRAME, ...holes], fillColor: '#0b1220', fillOpacity: 0.42, strokeOpacity: 0, clickable: false, zIndex: 0 });
+        const edges = holes.map((ring) => new google.maps.Polyline({ map, path: [...ring, ring[0]], strokeColor: ACCENT, strokeOpacity: 0.95, strokeWeight: 2, clickable: false, zIndex: 1 }));
+        const fitMask = () => {
+          const zoom = map.getZoom() ?? 0;
+          mask.setOptions({ fillOpacity: zoom >= MASK_FADE_ZOOM ? 0.18 : 0.42 });
+          edges.forEach((edge) => edge.setOptions({ strokeWeight: zoom >= MASK_FADE_ZOOM ? 1.5 : 2 }));
+        };
+        listeners.push(map.addListener('zoom_changed', fitMask));
         const outlines = map.data;
         const style = (feature: google.maps.Data.Feature): google.maps.Data.StyleOptions => {
           const selected = feature.getId() === selectedRef.current;

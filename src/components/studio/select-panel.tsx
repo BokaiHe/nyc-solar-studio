@@ -36,11 +36,14 @@ export function SelectPanel({ building, onStart }: { building: Building; onStart
     );
   }
 
-  if (status === 'no-model' || status === 'error' || !model) {
+  if (status === 'no-model' || status === 'outside' || status === 'error' || !model) {
+    const copy = status === 'outside'
+      ? [t.select.outsideTitle, t.select.outsideBody]
+      : status === 'no-model' ? [t.select.noModelTitle, t.select.noModelBody] : [t.select.errorTitle, t.select.errorBody];
     return (
       <SidePanel>
-        <p className="text-[17px] font-semibold tracking-[-0.01em]">{status === 'no-model' ? t.select.noModelTitle : t.select.errorTitle}</p>
-        <p className="mt-1.5 text-[15px] leading-6 text-label-secondary">{status === 'no-model' ? t.select.noModelBody : t.select.errorBody}</p>
+        <p className="text-[17px] font-semibold tracking-[-0.01em]">{copy[0]}</p>
+        <p className="mt-1.5 text-[15px] leading-6 text-label-secondary">{copy[1]}</p>
       </SidePanel>
     );
   }
