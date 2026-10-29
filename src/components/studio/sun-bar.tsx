@@ -8,9 +8,7 @@ function minuteLabel(minute: number): string {
   return `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
 }
 
-export function SunBar({ open, onToggle, dateIso, onDateChange, minuteOfDay, onMinuteChange, playing, onPlayingChange, sun, directLight }: {
-  open: boolean;
-  onToggle: () => void;
+export function SunBar({ dateIso, onDateChange, minuteOfDay, onMinuteChange, playing, onPlayingChange, sun, directLight }: {
   dateIso: string;
   onDateChange: (value: string) => void;
   minuteOfDay: number;
@@ -21,13 +19,6 @@ export function SunBar({ open, onToggle, dateIso, onDateChange, minuteOfDay, onM
   directLight: number | null;
 }) {
   const { t } = useI18n();
-  if (!open) {
-    return (
-      <button type="button" onClick={onToggle} className={`${pillClass} flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium transition active:scale-[0.97]`}>
-        <span className="text-warning">☀</span> {t.sun.toggle} <span className="tabular-nums text-label-secondary">{minuteLabel(minuteOfDay)}</span>
-      </button>
-    );
-  }
   return (
     <section className={`${pillClass} flex w-full max-w-3xl flex-col gap-1.5 px-4 py-2.5`}>
       <div className="flex flex-wrap items-center gap-3">
@@ -37,7 +28,6 @@ export function SunBar({ open, onToggle, dateIso, onDateChange, minuteOfDay, onM
         </button>
         <span className="w-11 text-[15px] font-semibold tabular-nums">{minuteLabel(minuteOfDay)}</span>
         <input aria-label={t.sun.time} type="range" min="0" max="1439" step="5" value={minuteOfDay} onChange={(event) => { onPlayingChange(false); onMinuteChange(Number(event.target.value)); }} className="apple-slider solar-time-slider min-w-40 flex-1" />
-        <button type="button" onClick={onToggle} className="grid h-7 w-7 place-items-center rounded-full bg-fill text-[11px] text-label-secondary transition hover:bg-fill-strong active:scale-95" aria-label={t.sun.hide}>✕</button>
       </div>
       <p className="text-[12px] tabular-nums text-label-secondary">
         {sun && t.sun.position(sun.azimuthDegrees.toFixed(0), sun.altitudeDegrees.toFixed(0))}

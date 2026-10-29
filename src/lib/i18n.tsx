@@ -135,8 +135,6 @@ const en = {
     deselect: 'Deselect',
   },
   sun: {
-    toggle: 'Sun',
-    hide: 'Hide sun controls',
     date: 'Simulation date',
     play: 'Play',
     pause: 'Pause',
@@ -301,8 +299,6 @@ const zh: Dict = {
     deselect: '取消选择',
   },
   sun: {
-    toggle: '日照',
-    hide: '收起日照控制',
     date: '模拟日期',
     play: '播放',
     pause: '暂停',

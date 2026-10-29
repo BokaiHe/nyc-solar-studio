@@ -56,7 +56,6 @@ export function SolarStudio() {
   const [examplesOpen, setExamplesOpen] = useState(false);
   const [rate, setRate] = useState(DEFAULT_ELECTRICITY_RATE_USD_PER_KWH);
   const [copied, setCopied] = useState(false);
-  const [sunOpen, setSunOpen] = useState(false);
   const [dateIso, setDateIso] = useState('2026-06-21');
   const [minuteOfDay, setMinuteOfDay] = useState(12 * 60);
   const [playing, setPlaying] = useState(false);
@@ -299,7 +298,6 @@ export function SolarStudio() {
     workerRef.current = null;
     setOptimizer({ status: 'idle' });
     setPlaying(false);
-    setSunOpen(false);
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
   }, []);
 
@@ -453,8 +451,6 @@ export function SolarStudio() {
               {editing && selectedIds.length === 0 && <ToolHint tool={tool} editable={editing} />}
               <div className="pointer-events-auto">
                 <SunBar
-                  open={sunOpen}
-                  onToggle={() => { setSunOpen((open) => !open); setPlaying(false); }}
                   dateIso={dateIso}
                   onDateChange={setDateIso}
                   minuteOfDay={minuteOfDay}
