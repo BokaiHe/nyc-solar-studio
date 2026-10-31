@@ -236,7 +236,9 @@ export class VisibilityCache {
   constructor(readonly samples: SunSample[], private readonly occluders: Occluders, private readonly cellMeters = 1.5) {}
 
   at(position: Vec3): Visibility {
-    const key = `${Math.round(position[0] / this.cellMeters)}:${Math.round(position[1] / 0.5)}:${Math.round(position[2] / this.cellMeters)}`;
+    // Heights share cells too: a rack's center rises with its tilt, and the
+    // layouts tried for one roof should reuse each other's rays.
+    const key = `${Math.round(position[0] / this.cellMeters)}:${Math.round(position[1] / this.cellMeters)}:${Math.round(position[2] / this.cellMeters)}`;
     let visibility = this.cache.get(key);
     if (!visibility) {
       const origin: Vec3 = [position[0], position[1] + RAY_START_OFFSET, position[2]];

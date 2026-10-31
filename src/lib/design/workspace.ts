@@ -1,5 +1,6 @@
 import type { ConceptPanel, LatLng } from '@/lib/solar/types';
 import type { PanelSize } from './geometry';
+import { validZones } from './keep-out';
 import type { LayoutParams } from './state';
 
 export const DRAFT_KEY = 'nyc-solar-workspace-v1';
@@ -30,6 +31,9 @@ function validSnapshot(value: unknown): boolean {
   const p = value.params;
   if (!['azimuthDegrees','tiltDegrees','setbackMeters','rowSpacingMeters','maxPanels'].every(k => finite(p[k]))
     || typeof p.alignToRoof !== 'boolean' || typeof p.includeShaded !== 'boolean') return false;
+  // Drafts saved before keep-out zones existed have none.
+  if (p.keepOut === undefined) p.keepOut = [];
+  else if (!validZones(p.keepOut)) return false;
   const ids = new Set<number>();
   return value.panels.every(panel => {
     if (!object(panel) || !Number.isInteger(panel.id) || ids.has(panel.id as number)

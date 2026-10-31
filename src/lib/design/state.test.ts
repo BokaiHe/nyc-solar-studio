@@ -136,4 +136,26 @@ describe('studioReducer', () => {
     const stale = run([...loaded, { type: 'neighbors-loaded', buildingId: 'other', neighbors }]);
     expect(stale.building.neighborStatus).toBe('loading');
   });
+
+  it('undoes keep-out areas together with the array they replaced', () => {
+    const square: Array<[number, number, number]> = [[0, 5, 0], [2, 5, 0], [2, 5, 2], [0, 5, 2]];
+    const generated = run([...loaded, { type: 'generated', panels: [panel(1, 0), panel(2, 3)], params: DEFAULT_PARAMS, shading: 'self', record: true }]);
+    const zoned = run([{ type: 'add-zone', points: square }], generated);
+    // The live update replaces the untouched array without its own undo step.
+    const regenerated = run([{ type: 'generated', panels: [panel(2, 3)], params: zoned.params, shading: 'self', record: false }], zoned);
+    expect(regenerated.params.keepOut).toHaveLength(1);
+
+    const undone = run([{ type: 'undo' }], regenerated);
+    expect(undone.params.keepOut).toEqual([]);
+    expect(undone.panels).toBe(generated.panels);
+    expect(isUntouchedLayout(undone)).toBe(true);
+
+    const redone = run([{ type: 'redo' }], undone);
+    expect(redone.params.keepOut).toHaveLength(1);
+    expect(redone.panels).toEqual([panel(2, 3)]);
+    expect(isUntouchedLayout(redone)).toBe(true);
+
+    const removed = run([{ type: 'remove-zone', id: 1 }, { type: 'undo' }], redone);
+    expect(removed.params.keepOut).toHaveLength(1);
+  });
 });

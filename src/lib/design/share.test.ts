@@ -8,6 +8,7 @@ const design: SharedDesign = {
     { id: 1, position: [1.25, 12.4, -3.07], azimuthDegrees: 180, tiltDegrees: 10, landscape: false, mount: 'rack' },
     { id: 2, position: [-4, 12.41, 2.5], azimuthDegrees: 95, tiltDegrees: 32, landscape: true, mount: 'flush' },
   ],
+  keepOut: [{ id: 1, points: [[0, 12.3, 0], [2.5, 12.3, 0], [2.5, 12.31, -1.5]] }],
 };
 
 describe('shared design links', () => {

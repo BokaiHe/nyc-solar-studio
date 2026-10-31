@@ -62,7 +62,9 @@ export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBus
 
           <div className="mt-3 flex items-center gap-2 text-[13px]">
             <span className={`h-2 w-2 shrink-0 rounded-full ${untouched ? 'bg-success' : 'bg-label-tertiary'}`} />
-            <span className="text-label-secondary">{layoutBusy ? t.design.generating : untouched ? t.design.statusAuto : t.design.statusEdited}</span>
+            <span className="text-label-secondary">
+              {layoutBusy ? t.design.generating : untouched ? t.design.statusAuto : state.pristine ? t.design.statusEmpty : t.design.statusEdited}
+            </span>
           </div>
           <div className="mt-1 flex items-center gap-2 text-[12px] text-label-secondary">
             <span className={`h-2 w-2 shrink-0 rounded-full ${neighborStatus === 'ready' ? 'bg-accent' : neighborStatus === 'error' ? 'bg-warning' : 'animate-pulse bg-label-tertiary'}`} />
@@ -76,6 +78,20 @@ export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBus
             <p className="mt-1 text-[12px] leading-5 text-label-secondary">
               {layoutResult.candidateCount ? t.design.layoutSummary(panels.length, layoutResult.shadedCount) : t.design.layoutEmpty}
             </p>
+          )}
+
+          {state.pristine && (
+            // A new roof starts empty: outline what must stay clear, then generate.
+            <div className="mt-4 rounded-[14px] bg-accent/8 p-3">
+              <p className="text-[15px] font-semibold">{t.design.emptyTitle}</p>
+              <p className="mt-1 text-[13px] leading-5 text-label-secondary">{t.design.emptyBody}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => dispatch({ type: 'set-tool', tool: 'zone' })} className={`${secondaryButtonClass} py-2.5`}>
+                  ⬠ {t.design.drawZones}
+                </button>
+                <button type="button" disabled={layoutBusy} onClick={onGenerate} className={`${primaryButtonClass} !py-2`}>{t.design.generate}</button>
+              </div>
+            </div>
           )}
 
           {workspace}
@@ -103,12 +119,24 @@ export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBus
             </div>
           )}
 
+          <div className="mt-4 rounded-[14px] bg-fill/60 p-3 text-[12px] leading-5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[13px] font-semibold">{t.design.zones(params.keepOut.length)}</span>
+              {params.keepOut.length > 0 && (
+                <button type="button" onClick={() => dispatch({ type: 'set-params', params: { keepOut: [] } })} className="text-[13px] font-medium text-destructive">
+                  {t.design.clearZones}
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-label-secondary">{t.design.zonesHint}</p>
+          </div>
+
           {settingsPending ? (
             <div className="mt-4 rounded-[14px] bg-accent/8 p-3">
               <button type="button" disabled={layoutBusy} onClick={onGenerate} className={primaryButtonClass}>{t.design.applySettings}</button>
               <p className="mt-2 text-[12px] leading-5 text-label-secondary">{t.design.applyHint}</p>
             </div>
-          ) : !untouched && (
+          ) : !untouched && !state.pristine && (
             <button type="button" disabled={layoutBusy} onClick={onGenerate} className={`${secondaryButtonClass} mt-4 w-full py-2.5`}>
               {generated ? t.design.regenerate : t.design.generate}
             </button>

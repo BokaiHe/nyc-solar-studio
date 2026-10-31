@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ConceptPanel, NeighborMesh } from '@/lib/solar/types';
 import { autoLayout, createLayoutContext } from './auto-layout';
 import { panelClear } from './clearance';
+import { panelInZones } from './keep-out';
 import { Occluders } from './shading';
 import { DEFAULT_PARAMS } from './state';
 
@@ -74,5 +75,33 @@ describe('auto layout collisions', () => {
     const { panels } = autoLayout(roof, { ...DEFAULT_PARAMS, includeShaded: true }, size, createLayoutContext(roof, fin));
     expect(panels.length).toBeGreaterThan(30);
     expect(panels.filter((panel) => overlapsBox(panel, [-0.05, 0.05, -10, 10]))).toEqual([]);
+  });
+});
+
+describe('keep-out zones', () => {
+  const zone = { id: 1, points: [[-4, 10, -3], [4, 10, -3], [4, 10, 3], [-4, 10, 3]] as Array<[number, number, number]> };
+
+  it('keeps auto layout out of a zone and its setback', () => {
+    const params = { ...DEFAULT_PARAMS, includeShaded: true, keepOut: [zone] };
+    const { panels } = autoLayout(roof, params, size, createLayoutContext(roof));
+    const open = autoLayout(roof, { ...params, keepOut: [] }, size, createLayoutContext(roof)).panels;
+    expect(panels.length).toBeGreaterThan(20);
+    expect(panels.length).toBeLessThan(open.length);
+    const reach = [-4 - DEFAULT_PARAMS.setbackMeters, 4 + DEFAULT_PARAMS.setbackMeters, -3 - DEFAULT_PARAMS.setbackMeters, 3 + DEFAULT_PARAMS.setbackMeters];
+    expect(panels.filter((panel) => overlapsBox(panel, reach.map((value, index) => value + (index % 2 ? -0.25 : 0.25))))).toEqual([]);
+    expect(panels.some((panel) => panelInZones(panel, size, [zone]))).toBe(false);
+  });
+
+  it('ignores a zone drawn on a different level', () => {
+    const podium = { ...zone, points: zone.points.map(([x, , z]) => [x, 2, z] as [number, number, number]) };
+    const params = { ...DEFAULT_PARAMS, includeShaded: true };
+    const open = autoLayout(roof, params, size, createLayoutContext(roof)).panels;
+    expect(autoLayout(roof, { ...params, keepOut: [podium] }, size, createLayoutContext(roof)).panels).toHaveLength(open.length);
+  });
+
+  it('flags a hand-placed panel overlapping a zone', () => {
+    expect(panelInZones(rack(0, 0), size, [zone])).toBe(true);
+    expect(panelInZones(rack(4.4, 0), size, [zone])).toBe(true);
+    expect(panelInZones(rack(8, 0), size, [zone])).toBe(false);
   });
 });

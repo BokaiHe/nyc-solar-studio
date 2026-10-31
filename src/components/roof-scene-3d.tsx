@@ -1,11 +1,13 @@
 'use client';
 
 import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
-import { Grid, OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import { Grid, Line, OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { YIELD_COLORS, yieldBand } from '@/lib/design/workspace';
 import { createSurfaceGeometry, panelCenter, panelYaw, rackCenterHeight, roofTopHeight, type PanelSize } from '@/lib/design/geometry';
+import type { KeepOutZone } from '@/lib/design/keep-out';
+import type { Basemap } from '@/lib/map-tiles';
 import type { SelectMode, Tool } from '@/lib/design/state';
 import type { ConceptPanel, NeighborMesh, RoofModelData, SunSnapshot } from '@/lib/solar/types';
 
@@ -25,9 +27,15 @@ type RoofScene3DProps = {
   view: ViewCommand;
   // Resolves where a new panel would go for a roof hit, snapped and checked for overlap.
   planPanel: (point: Position, normal: Position) => PanelPlan;
+  zones: KeepOutZone[];
+  // Satellite imagery laid on the ground and draped over the roof; null hides it.
+  basemap: Basemap | null;
   // Surrounding buildings, drawn as context and casting shadows; null hides them.
   neighbors: NeighborMesh | null;
   onAddPanel: (panel: Omit<ConceptPanel, 'id'>) => void;
+  onAddZone: (points: Position[]) => void;
+  onRemoveZone: (id: number) => void;
+  onUpdateZone: (id: number, points: Position[]) => void;
   onSelect: (ids: number[], mode: SelectMode) => void;
   onCheckpoint: () => void;
   onMovePanels: (positions: Array<[number, Position]>) => void;
@@ -45,7 +53,13 @@ const PANEL_THICKNESS = 0.05;
 
 // Module styling follows BESS-Twin's SolarFarm: navy glass with light cell
 // lines, aluminium frame, and steel posts under tilted racks.
-const COLORS = { glass: '#2f4f86', frame: '#94a3b8', cells: '#9cc3ec', post: '#b8c2cc', selected: '#38bdf8', hover: '#7dd3fc', erase: '#ef4444', ghost: '#22c55e' };
+const COLORS = { glass: '#2f4f86', frame: '#94a3b8', cells: '#9cc3ec', post: '#b8c2cc', selected: '#38bdf8', hover: '#7dd3fc', erase: '#ef4444', ghost: '#22c55e', zone: '#ef4444', zoneErase: '#991b1b' };
+// Keep-out areas float this far above the roof so they never z-fight with it.
+const ZONE_LIFT = 0.04;
+// Pen-tool reach on screen: a click this close to the first anchor closes
+// the outline, and this close to an anchor of a finished area grabs it.
+const ZONE_CLOSE_PIXELS = 14;
+const ANCHOR_PIXELS = 11;
 
 function cellTexture(landscape: boolean): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -282,6 +296,95 @@ function RackPosts({ panels, panelSize, material }: { panels: ConceptPanel[]; pa
   return <instancedMesh key={Math.ceil(posts.length / 256)} ref={ref} args={[geometry, material, Math.ceil(posts.length / 256) * 256]} castShadow />;
 }
 
+// A keep-out area: a translucent fill triangulated in plan, at the heights
+// it was drawn at, with an outline. Erasable with the erase tool.
+const ZoneMesh = memo(function ZoneMesh({ zone, erasing, highlighted, onErase, onHover }: {
+  zone: KeepOutZone;
+  erasing: boolean;
+  highlighted: boolean;
+  onErase: (id: number) => void;
+  onHover: (id: number | null) => void;
+}) {
+  const geometry = useMemo(() => {
+    const contour = zone.points.map(([x, , z]) => new THREE.Vector2(x, z));
+    const faces = THREE.ShapeUtils.triangulateShape(contour, []);
+    const result = new THREE.BufferGeometry();
+    result.setAttribute('position', new THREE.Float32BufferAttribute(zone.points.flatMap(([x, y, z]) => [x, y + ZONE_LIFT, z]), 3));
+    result.setIndex(faces.flat());
+    return result;
+  }, [zone.points]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  const outline = useMemo(() => [...zone.points, zone.points[0]].map(([x, y, z]) => [x, y + ZONE_LIFT, z] as Position), [zone.points]);
+  const color = highlighted ? COLORS.zoneErase : COLORS.zone;
+  return (
+    <group>
+      <mesh
+        geometry={geometry}
+        renderOrder={2}
+        // Only the erase tool picks zones; other tools reach the roof through them.
+        raycast={erasing ? THREE.Mesh.prototype.raycast : () => null}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.stopPropagation();
+          onErase(zone.id);
+        }}
+        onPointerOver={(event) => {
+          event.stopPropagation();
+          onHover(zone.id);
+        }}
+        onPointerOut={() => onHover(null)}
+      >
+        <meshBasicMaterial color={color} transparent opacity={highlighted ? 0.55 : 0.35} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <Line points={outline} color={color} lineWidth={2} raycast={() => null} />
+    </group>
+  );
+});
+
+// Solid red dots with a white rim, the same size on screen at any zoom.
+function anchorTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const context = canvas.getContext('2d')!;
+  context.fillStyle = '#ffffff';
+  context.beginPath();
+  context.arc(32, 32, 30, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = COLORS.zone;
+  context.beginPath();
+  context.arc(32, 32, 22, 0, Math.PI * 2);
+  context.fill();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+// Pen-tool anchors, drawn over the roof and panels.
+const Anchors = memo(function Anchors({ points, texture, size }: { points: Position[]; texture: THREE.Texture; size: number }) {
+  const geometry = useMemo(() => {
+    const result = new THREE.BufferGeometry();
+    result.setAttribute('position', new THREE.Float32BufferAttribute(points.flatMap(([x, y, z]) => [x, y + ZONE_LIFT, z]), 3));
+    return result;
+  }, [points]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return (
+    <points geometry={geometry} raycast={() => null} renderOrder={6}>
+      <pointsMaterial map={texture} size={size} sizeAttenuation={false} transparent alphaTest={0.2} depthTest={false} depthWrite={false} />
+    </points>
+  );
+});
+
+// Outline of at least three distinct points with some area, or null.
+function cleanOutline(points: Position[]): Position[] | null {
+  const distinct = points.filter((point, index) => index === 0 || Math.hypot(point[0] - points[index - 1][0], point[2] - points[index - 1][2]) > 0.05);
+  let area = 0;
+  distinct.forEach(([x1, , z1], index) => {
+    const [x2, , z2] = distinct[(index + 1) % distinct.length];
+    area += x1 * z2 - x2 * z1;
+  });
+  return distinct.length >= 3 && Math.abs(area) / 2 > 0.1 ? distinct : null;
+}
+
 function upNormal(face: THREE.Face | null | undefined): Position {
   if (!face) return [0, 1, 0];
   const sign = face.normal.y < 0 ? -1 : 1;
@@ -291,10 +394,11 @@ function upNormal(face: THREE.Face | null | undefined): Position {
 type Gesture =
   | { kind: 'move'; startX: number; startY: number; started: boolean; plane: THREE.Plane; from: THREE.Vector3; origins: Array<[ConceptPanel, Position]> }
   | { kind: 'marquee'; startX: number; startY: number; additive: boolean }
-  | { kind: 'erase'; erased: boolean };
+  | { kind: 'erase'; erased: boolean }
+  | { kind: 'anchor'; zone: KeepOutZone; index: number };
 
 function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null) => void; setCursor: (cursor: string) => void }) {
-  const { model, panels, panelSize, selectedIds, sun, tool, editable, view, planPanel, neighbors, onAddPanel, onSelect, onCheckpoint, onMovePanels, onCancelGesture, onRemovePanels, setMarquee, setCursor } = props;
+  const { model, panels, panelSize, selectedIds, sun, tool, editable, view, planPanel, zones, basemap, neighbors, onAddPanel, onAddZone, onRemoveZone, onUpdateZone, onSelect, onCheckpoint, onMovePanels, onCancelGesture, onRemovePanels, setMarquee, setCursor } = props;
   const { camera, gl, raycaster } = useThree();
   const viewport = useThree((state) => state.size);
   // Portrait screens show less width, so back the camera off to keep the roof in frame.
@@ -306,8 +410,46 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
   const gestureRef = useRef<Gesture | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [ghost, setGhost] = useState<PanelPlan | null>(null);
+  // The keep-out outline being drawn, and where the pointer is on the roof.
+  const [zoneDraft, setZoneDraft] = useState<Position[]>([]);
+  const [zoneCursor, setZoneCursor] = useState<Position | null>(null);
+  const [hoveredZone, setHoveredZone] = useState<number | null>(null);
+  // A finished area's outline while one of its anchors is dragged.
+  const [anchorDrag, setAnchorDrag] = useState<{ id: number; points: Position[] } | null>(null);
+  const [overAnchor, setOverAnchor] = useState(false);
+  // Set when a press grabs an anchor, so the click that follows adds no point.
+  const anchorPressRef = useRef(false);
+  const anchorDot = useMemo(() => anchorTexture(), []);
+  useEffect(() => () => anchorDot.dispose(), [anchorDot]);
+  // Switching tools drops an unfinished outline.
+  const [draftTool, setDraftTool] = useState(tool);
+  if (draftTool !== tool) {
+    setDraftTool(tool);
+    setZoneDraft([]);
+    setZoneCursor(null);
+  }
 
-  const roofGeometry = useMemo(() => createSurfaceGeometry(model.positions, model.indices), [model.indices, model.positions]);
+  const roofGeometry = useMemo(() => {
+    const geometry = createSurfaceGeometry(model.positions, model.indices);
+    if (basemap) {
+      // Drape the imagery over the roof by plan position, as seen from above.
+      const { minX, maxX, minZ, maxZ } = basemap;
+      const uv: number[] = [];
+      for (let index = 0; index < model.positions.length; index += 3) {
+        uv.push((model.positions[index] - minX) / (maxX - minX), (maxZ - model.positions[index + 2]) / (maxZ - minZ));
+      }
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    }
+    return geometry;
+  }, [basemap, model.indices, model.positions]);
+  const basemapTexture = useMemo(() => {
+    if (!basemap) return null;
+    const texture = new THREE.CanvasTexture(basemap.canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+    return texture;
+  }, [basemap]);
+  useEffect(() => () => basemapTexture?.dispose(), [basemapTexture]);
   const wallGeometry = useMemo(() => createSurfaceGeometry(model.wallPositions, model.wallIndices), [model.wallIndices, model.wallPositions]);
   const neighborGeometry = useMemo(() => neighbors?.indices.length ? createSurfaceGeometry(neighbors.positions, neighbors.indices) : null, [neighbors]);
   useEffect(() => () => neighborGeometry?.dispose(), [neighborGeometry]);
@@ -372,6 +514,25 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
     return raycaster.ray.intersectPlane(plane, new THREE.Vector3());
   }, [camera, gl, raycaster]);
 
+  // The roof point under the pointer, if any.
+  const roofHitAt = useCallback((clientX: number, clientY: number): Position | null => {
+    const roof = roofRef.current;
+    if (!roof) return null;
+    const rect = gl.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.intersectObject(roof, false)[0];
+    return hit ? [hit.point.x, hit.point.y, hit.point.z] : null;
+  }, [camera, gl, raycaster]);
+
+  // Height of the roof straight below (x, z), looking down from above `nearY`.
+  const roofHeightAt = useCallback((x: number, z: number, nearY: number): number | null => {
+    const roof = roofRef.current;
+    if (!roof) return null;
+    const probe = new THREE.Raycaster(new THREE.Vector3(x, nearY + 20, z), new THREE.Vector3(0, -1, 0));
+    return probe.intersectObject(roof, false)[0]?.point.y ?? null;
+  }, []);
+
   // Drop a moved panel back onto whatever roof lies under it.
   const reseat = useCallback((panel: ConceptPanel, x: number, z: number): Position | null => {
     const roof = roofRef.current;
@@ -399,6 +560,10 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
         const dx = point.x - gesture.from.x;
         const dz = point.z - gesture.from.z;
         onMovePanels(gesture.origins.map(([panel, origin]) => [panel.id, [origin[0] + dx, origin[1], origin[2] + dz]]));
+      } else if (gesture.kind === 'anchor') {
+        const point = roofHitAt(event.clientX, event.clientY);
+        if (!point) return;
+        setAnchorDrag({ id: gesture.zone.id, points: gesture.zone.points.map((item, index) => (index === gesture.index ? point : item)) });
       } else if (gesture.kind === 'marquee') {
         const rect = gl.domElement.getBoundingClientRect();
         const left = Math.min(gesture.startX, event.clientX) - rect.left;
@@ -411,7 +576,12 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
       if (!gesture) return;
       gestureRef.current = null;
       setControlsEnabled(true);
-      if (gesture.kind === 'move' && gesture.started) {
+      if (gesture.kind === 'anchor') {
+        const point = roofHitAt(event.clientX, event.clientY);
+        const outline = point && cleanOutline(gesture.zone.points.map((item, index) => (index === gesture.index ? point : item)));
+        if (outline) onUpdateZone(gesture.zone.id, outline);
+        setAnchorDrag(null);
+      } else if (gesture.kind === 'move' && gesture.started) {
         const point = pointerOnPlane(event.clientX, event.clientY, gesture.plane);
         const dx = point ? point.x - gesture.from.x : 0;
         const dz = point ? point.z - gesture.from.z : 0;
@@ -446,10 +616,11 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
-  }, [camera, gl, onCancelGesture, onCheckpoint, onMovePanels, onSelect, panels, pointerOnPlane, reseat, setControlsEnabled, setMarquee]);
+  }, [camera, gl, onCancelGesture, onCheckpoint, onMovePanels, onSelect, onUpdateZone, panels, pointerOnPlane, reseat, roofHitAt, setControlsEnabled, setMarquee]);
 
   const onPanelDown = useCallback((event: ThreeEvent<PointerEvent>, panel: ConceptPanel) => {
-    if (!editable || event.button !== 0) return;
+    // Keep-out outlines are drawn on the roof, through any panels on it.
+    if (!editable || event.button !== 0 || tool === 'zone') return;
     event.stopPropagation();
     if (tool === 'add') return;
     setControlsEnabled(false);
@@ -485,7 +656,7 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
   // counts as entered only when the hovered panel changes.
   const hoveredRef = useRef<number | null>(null);
   const onPanelOver = useCallback((event: ThreeEvent<PointerEvent>, panel: ConceptPanel) => {
-    if (!editable || tool === 'add') return;
+    if (!editable || tool === 'add' || tool === 'zone') return;
     event.stopPropagation();
     if (hoveredRef.current === panel.id) return;
     hoveredRef.current = panel.id;
@@ -509,8 +680,39 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
     setHoveredId(null);
   }, []);
 
+  // Distance in pixels between two scene points as currently viewed.
+  const screenGap = (a: Position, b: Position) => {
+    const pa = new THREE.Vector3(...a).project(camera);
+    const pb = new THREE.Vector3(...b).project(camera);
+    return Math.hypot(((pa.x - pb.x) * viewport.width) / 2, ((pa.y - pb.y) * viewport.height) / 2);
+  };
+
+  // The anchor of a finished area under the pointer (while no outline is being drawn).
+  const anchorAt = (point: Position): { zone: KeepOutZone; index: number } | null => {
+    if (zoneDraft.length) return null;
+    for (const zone of zones) {
+      const index = zone.points.findIndex((anchor) => screenGap(anchor, point) < ANCHOR_PIXELS);
+      if (index >= 0) return { zone, index };
+    }
+    return null;
+  };
+
   const onRoofDown = (event: ThreeEvent<PointerEvent>) => {
     if (!editable || event.button !== 0 || tool === 'add') return;
+    if (tool === 'zone') {
+      // Like a pen tool: drag an anchor to reshape an area; Alt-click removes it.
+      const grabbed = anchorAt([event.point.x, event.point.y, event.point.z]);
+      anchorPressRef.current = grabbed !== null;
+      if (!grabbed) return;
+      if (event.altKey) {
+        const outline = cleanOutline(grabbed.zone.points.filter((_, index) => index !== grabbed.index));
+        if (outline) onUpdateZone(grabbed.zone.id, outline);
+        return;
+      }
+      setControlsEnabled(false);
+      gestureRef.current = { kind: 'anchor', ...grabbed };
+      return;
+    }
     setControlsEnabled(false);
     if (tool === 'erase') {
       gestureRef.current = { kind: 'erase', erased: false };
@@ -524,25 +726,83 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
     };
   };
 
-  const onRoofMove = (event: ThreeEvent<PointerEvent>) => {
-    if (!editable || tool !== 'add' || gestureRef.current) return;
-    setGhost(planPanel([event.point.x, event.point.y, event.point.z], upNormal(event.face)));
+  // Where the next anchor goes: under the pointer, along a 45° step from the
+  // last anchor with Shift, or exactly on the first anchor when close to it.
+  const penPoint = (event: ThreeEvent<PointerEvent | MouseEvent>): Position => {
+    let point: Position = [event.point.x, event.point.y, event.point.z];
+    const last = zoneDraft.at(-1);
+    if (event.shiftKey && last) {
+      const dx = point[0] - last[0];
+      const dz = point[2] - last[2];
+      const angle = Math.round(Math.atan2(dz, dx) / (Math.PI / 4)) * (Math.PI / 4);
+      const length = dx * Math.cos(angle) + dz * Math.sin(angle);
+      const x = last[0] + length * Math.cos(angle);
+      const z = last[2] + length * Math.sin(angle);
+      point = [x, roofHeightAt(x, z, point[1]) ?? point[1], z];
+    }
+    const first = zoneDraft[0];
+    return zoneDraft.length >= 3 && screenGap(point, first) < ZONE_CLOSE_PIXELS ? first : point;
   };
 
+  const onRoofMove = (event: ThreeEvent<PointerEvent>) => {
+    if (!editable || gestureRef.current) return;
+    if (tool === 'zone') {
+      setZoneCursor(penPoint(event));
+      setOverAnchor(anchorAt([event.point.x, event.point.y, event.point.z]) !== null);
+    } else if (tool === 'add') {
+      setGhost(planPanel([event.point.x, event.point.y, event.point.z], upNormal(event.face)));
+    }
+  };
+
+  // Close the outline being drawn into a keep-out area; slivers are discarded.
+  const finishZone = useCallback((points: Position[]) => {
+    const outline = cleanOutline(points);
+    if (outline) onAddZone(outline);
+    setZoneDraft([]);
+  }, [onAddZone]);
+
   const onRoofClick = (event: ThreeEvent<MouseEvent>) => {
-    if (!editable || tool !== 'add' || event.delta > CLICK_TOLERANCE) return;
+    if (!editable || event.delta > CLICK_TOLERANCE) return;
+    if (tool === 'zone') {
+      if (anchorPressRef.current) {
+        anchorPressRef.current = false;
+        return;
+      }
+      const point = penPoint(event);
+      if (zoneDraft.length >= 3 && point === zoneDraft[0]) finishZone(zoneDraft);
+      else setZoneDraft([...zoneDraft, point]);
+      return;
+    }
+    if (tool !== 'add') return;
     const plan = planPanel([event.point.x, event.point.y, event.point.z], upNormal(event.face));
     if (plan.valid) onAddPanel(plan.panel);
     setGhost(planPanel([event.point.x, event.point.y, event.point.z], upNormal(event.face)));
   };
 
-  const hovered = editable && tool !== 'add' ? hoveredId : null;
+  // Enter finishes the outline, Backspace removes its last point. (Escape
+  // switches back to Select, which drops the outline.)
+  useEffect(() => {
+    if (tool !== 'zone') return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Enter') finishZone(zoneDraft);
+      else if (event.key === 'Backspace' && zoneDraft.length) {
+        event.preventDefault();
+        setZoneDraft(zoneDraft.slice(0, -1));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [finishZone, tool, zoneDraft]);
+
+  const hovered = editable && tool !== 'add' && tool !== 'zone' ? hoveredId : null;
+  const zoneGrab = tool === 'zone' && (overAnchor || anchorDrag !== null);
   useEffect(() => {
     setCursor(!editable ? 'default'
-      : tool === 'add' ? 'crosshair'
+      : tool === 'zone' ? (zoneGrab ? 'move' : 'crosshair')
+        : tool === 'add' ? 'crosshair'
         : tool === 'erase' ? (hovered !== null ? 'pointer' : 'crosshair')
           : hovered !== null ? 'move' : 'default');
-  }, [editable, hovered, setCursor, tool]);
+  }, [editable, hovered, setCursor, tool, zoneGrab]);
 
   // Group panels by box shape and look (selection, hover, yield band) into
   // a handful of instanced meshes, so large roofs draw in a few calls.
@@ -572,6 +832,19 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
     return [...byKey.values()];
   }, [annualRatios, boxes, editable, hovered, materials, panels, selected, tool, yieldMaterials]);
 
+  // The outline so far plus the pointer, closed when the pointer is on the first point.
+  const draftPoints = editable && tool === 'zone' ? zoneDraft : [];
+  // penPoint snaps the cursor onto the first anchor when it can close.
+  const closing = draftPoints.length >= 3 && zoneCursor === draftPoints[0];
+  const penActive = editable && tool === 'zone';
+  const drawingPoints = closing ? [...draftPoints, draftPoints[0]] : zoneCursor ? [...draftPoints, zoneCursor] : draftPoints;
+  const drawing = draftPoints.length && drawingPoints.length >= 2 ? drawingPoints : null;
+
+  // Areas as shown, with the one being reshaped following its dragged anchor.
+  const shownZones = anchorDrag
+    ? zones.map((zone) => (zone.id === anchorDrag.id ? { ...zone, points: anchorDrag.points } : zone))
+    : zones;
+
   // The ghost only shows while placing; stale previews from another tool are ignored.
   const preview = editable && tool === 'add' ? ghost : null;
 
@@ -583,8 +856,8 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
       {/* Design happens on the roof, so frame the roof footprint, not the whole tower. */}
       <PerspectiveCamera makeDefault position={[footprint * initialFit * 1.1, roofTop + footprint * initialFit * 1.1, footprint * initialFit * 1.3]} fov={40} near={0.1} far={Math.max(size * 10, 1500)} />
       <OrbitControls ref={controlsRef as never} makeDefault target={[0, roofTop, 0]} minDistance={Math.max(4, footprint * 0.12)} maxDistance={size * 4} maxPolarAngle={Math.PI * 0.49} />
-      <mesh ref={roofRef} geometry={roofGeometry} castShadow receiveShadow onPointerDown={onRoofDown} onPointerMove={onRoofMove} onPointerOut={() => setGhost(null)} onClick={onRoofClick}>
-        <meshStandardMaterial color="#e2e8f0" roughness={0.78} metalness={0.02} side={THREE.DoubleSide} flatShading />
+      <mesh ref={roofRef} geometry={roofGeometry} castShadow receiveShadow onPointerDown={onRoofDown} onPointerMove={onRoofMove} onPointerOut={() => { setGhost(null); setZoneCursor(null); }} onClick={onRoofClick} onDoubleClick={() => { if (editable && tool === 'zone') finishZone(zoneDraft); }}>
+        <meshStandardMaterial key={basemapTexture ? 'imagery' : 'plain'} color={basemapTexture ? '#ffffff' : '#e2e8f0'} map={basemapTexture} roughness={0.78} metalness={0.02} side={THREE.DoubleSide} flatShading />
       </mesh>
       <mesh geometry={wallGeometry} castShadow receiveShadow>
         <meshStandardMaterial color="#a8b2bf" roughness={0.9} side={THREE.DoubleSide} />
@@ -600,6 +873,24 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
         <PanelBatchMesh key={batch.key} batch={batch} onPointerDown={onPanelDown} onPointerOver={onPanelOver} onPointerOut={onPanelOut} />
       ))}
       <RackPosts panels={panels} panelSize={panelSize} material={materials.post} />
+      {shownZones.map((zone) => (
+        <ZoneMesh
+          key={zone.id}
+          zone={zone}
+          erasing={editable && tool === 'erase'}
+          highlighted={editable && tool === 'erase' && hoveredZone === zone.id}
+          onErase={onRemoveZone}
+          onHover={setHoveredZone}
+        />
+      ))}
+      {penActive && shownZones.map((zone) => <Anchors key={zone.id} points={zone.points} texture={anchorDot} size={10} />)}
+      {closing && <ZoneMesh zone={{ id: -1, points: draftPoints }} erasing={false} highlighted={false} onErase={onRemoveZone} onHover={setHoveredZone} />}
+      {drawing && (
+        <Line points={drawing.map(([x, y, z]) => [x, y + ZONE_LIFT, z] as Position)} color={COLORS.zone} lineWidth={2} raycast={() => null} />
+      )}
+      {draftPoints.length > 0 && <Anchors points={draftPoints} texture={anchorDot} size={11} />}
+      {/* The first anchor grows when a click would close the outline. */}
+      {closing && <Anchors points={[draftPoints[0]]} texture={anchorDot} size={18} />}
       {preview && (
         <mesh
           geometry={preview.panel.landscape ? boxes.landscape : boxes.portrait}
@@ -609,7 +900,19 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
           raycast={() => null}
         />
       )}
-      <Grid args={[size * 1.8, size * 1.8]} cellSize={1} cellThickness={0.4} cellColor="#94a3b8" sectionSize={5} sectionThickness={0.8} sectionColor="#64748b" fadeDistance={size * 1.5} infiniteGrid />
+      {basemap && basemapTexture ? (
+        <mesh
+          rotation-x={-Math.PI / 2}
+          position={[(basemap.minX + basemap.maxX) / 2, -0.02, (basemap.minZ + basemap.maxZ) / 2]}
+          receiveShadow
+          raycast={() => null}
+        >
+          <planeGeometry args={[basemap.maxX - basemap.minX, basemap.maxZ - basemap.minZ]} />
+          <meshStandardMaterial map={basemapTexture} roughness={1} />
+        </mesh>
+      ) : (
+        <Grid args={[size * 1.8, size * 1.8]} cellSize={1} cellThickness={0.4} cellColor="#94a3b8" sectionSize={5} sectionThickness={0.8} sectionColor="#64748b" fadeDistance={size * 1.5} infiniteGrid />
+      )}
     </>
   );
 }
@@ -628,6 +931,11 @@ export function RoofScene3D(props: RoofScene3DProps) {
       >
         <Scene {...props} setMarquee={setMarquee} setCursor={setCursor} />
       </Canvas>
+      {props.basemap && (
+        <p className="pointer-events-none absolute bottom-1 right-2 max-w-[60%] truncate text-right text-[10px] text-white/90 [text-shadow:0_0_3px_rgba(0,0,0,0.8)]">
+          {props.basemap.attribution}
+        </p>
+      )}
       {marquee && (
         <div
           className="pointer-events-none absolute rounded-[4px] border border-accent bg-accent/12"

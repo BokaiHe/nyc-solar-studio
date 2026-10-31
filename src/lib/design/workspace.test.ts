@@ -46,7 +46,7 @@ describe('local design workspace', () => {
     const restored = studioReducer(state, { type: 'building-loaded', location: draft.location,
       model: { nycBuildingId: 'b1' } as RoofModelData, insights: null, panels: [], params: draft.params });
     expect(restored.step).toBe('design');
-    expect(restored.autoFill).toBe(false);
+    expect(restored.pristine).toBe(false);
     expect(restored.past).toEqual([]);
   });
 });

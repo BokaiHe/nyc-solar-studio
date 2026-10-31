@@ -1,9 +1,11 @@
 import type { ConceptPanel, LatLng } from '@/lib/solar/types';
+import type { KeepOutZone } from './keep-out';
 
 export type SharedDesign = {
   location: LatLng;
   buildingId: string;
   panels: ConceptPanel[];
+  keepOut: KeepOutZone[];
 };
 
 // Each panel: x_y_z (centimeters) _azimuth_tilt (degrees) _landscape _flush, joined by '*'.
@@ -37,6 +39,24 @@ function parsePanels(value: string | null): ConceptPanel[] {
   return panels;
 }
 
+// Each zone: its points as x_y_z (centimeters) joined by '_', zones joined by '*'.
+function encodeZones(zones: KeepOutZone[]): string {
+  return zones.map((zone) => zone.points.flatMap((point) => point.map((value) => Math.round(value * 100))).join('_')).join('*');
+}
+
+function parseZones(value: string | null): KeepOutZone[] {
+  if (!value) return [];
+  const zones: KeepOutZone[] = [];
+  for (const item of value.split('*')) {
+    const parts = item.split('_').map(Number);
+    if (parts.length < 9 || parts.length % 3 !== 0 || parts.some((part) => !Number.isFinite(part))) continue;
+    const points: KeepOutZone['points'] = [];
+    for (let i = 0; i < parts.length; i += 3) points.push([parts[i] / 100, parts[i + 1] / 100, parts[i + 2] / 100]);
+    zones.push({ id: zones.length + 1, points });
+  }
+  return zones;
+}
+
 export function encodeSharedDesign(design: SharedDesign): string {
   const params = new URLSearchParams({
     lat: design.location.latitude.toFixed(6),
@@ -44,6 +64,7 @@ export function encodeSharedDesign(design: SharedDesign): string {
     bid: design.buildingId,
   });
   if (design.panels.length) params.set('p3', encodePanels(design.panels));
+  if (design.keepOut.length) params.set('k', encodeZones(design.keepOut));
   return `/b?${params}`;
 }
 
@@ -59,5 +80,5 @@ export function parseSharedDesign(search: string): SharedDesign | null {
   ) {
     return null;
   }
-  return { location: { latitude, longitude }, buildingId, panels: parsePanels(params.get('p3')) };
+  return { location: { latitude, longitude }, buildingId, panels: parsePanels(params.get('p3')), keepOut: parseZones(params.get('k')) };
 }

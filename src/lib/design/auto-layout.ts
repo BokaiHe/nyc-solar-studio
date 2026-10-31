@@ -1,6 +1,7 @@
 import type { ConceptPanel, NeighborMesh, RoofModelData } from '@/lib/solar/types';
 import { panelClear } from './clearance';
 import { COLUMN_GAP, FLAT_ROOF_DEGREES, FLUSH_ROW_GAP, panelCenter, type PanelSize } from './geometry';
+import { insidePolygon, zoneHeight, ZONE_HEIGHT_TOLERANCE_METERS } from './keep-out';
 import { dominantAxisDegrees, extractRoofFaces, planeHeight, type RoofFace, type Vec3 } from './roof-faces';
 import { annualSunSamples, annualYield, idealPanelYield, Occluders, panelNormal, VisibilityCache, type RowShade, type SunSample } from './shading';
 import type { LayoutParams } from './state';
@@ -161,6 +162,21 @@ class FaceRaster {
     }
   }
 
+  // Set every cell whose center lies inside the polygon.
+  fillPolygon(points: Array<[number, number]>, value: number) {
+    const us = points.map((point) => point[0]);
+    const vs = points.map((point) => point[1]);
+    const i0 = Math.max(0, Math.floor((Math.min(...us) - this.minU) / CELL));
+    const i1 = Math.min(this.width - 1, Math.ceil((Math.max(...us) - this.minU) / CELL));
+    const j0 = Math.max(0, Math.floor((Math.min(...vs) - this.minV) / CELL));
+    const j1 = Math.min(this.height - 1, Math.ceil((Math.max(...vs) - this.minV) / CELL));
+    for (let j = j0; j <= j1; j += 1) {
+      for (let i = i0; i <= i1; i += 1) {
+        if (insidePolygon(this.minU + (i + 0.5) * CELL, this.minV + (j + 0.5) * CELL, points)) this.cells[j * this.width + i] = value;
+      }
+    }
+  }
+
   // Keep only cells at least `setback` meters from any unusable cell or the raster edge.
   erode(setback: number) {
     if (setback <= 0) return;
@@ -244,6 +260,13 @@ function faceCandidates(faces: RoofFace[], index: number, frame: Frame, params: 
       raster.fill(a, b, c, 0);
     }
   });
+  // Keep-out zones drawn at about this face's height, projected onto it. The
+  // setback below then keeps panels clear of them as it does of edges.
+  for (const zone of params.keepOut) {
+    const [cx, cz] = [zone.points[0][0], zone.points[0][2]];
+    if (Math.abs(zoneHeight(zone) - planeHeight(face, cx, cz)) > ZONE_HEIGHT_TOLERANCE_METERS) continue;
+    raster.fillPolygon(zone.points.map(([x, , z]) => toUV([x, planeHeight(face, x, z), z])), 0);
+  }
   raster.erode(params.setbackMeters);
 
   const length = panel.heightMeters;

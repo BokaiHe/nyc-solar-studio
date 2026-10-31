@@ -1,9 +1,10 @@
 import type { BuildingInsights, ConceptPanel, LatLng, NeighborMesh, RoofModelData } from '@/lib/solar/types';
+import type { KeepOutZone } from './keep-out';
 
 export type Step = 'select' | 'design' | 'results';
 export type BuildingStatus = 'idle' | 'loading' | 'ready' | 'no-model' | 'outside' | 'error';
 export type NoticeKey = 'sharedModelChanged';
-export type Tool = 'select' | 'add' | 'erase';
+export type Tool = 'select' | 'add' | 'erase' | 'zone';
 export type SelectMode = 'replace' | 'add' | 'toggle';
 type Position = [number, number, number];
 
@@ -19,6 +20,8 @@ export type LayoutParams = {
   includeShaded: boolean;
   // 0 fills every good position; otherwise keep the best-exposed N.
   maxPanels: number;
+  // Areas drawn on this roof where no panel may go.
+  keepOut: KeepOutZone[];
 };
 
 export type Building = {
@@ -37,8 +40,8 @@ export type StudioState = {
   step: Step;
   building: Building;
   panels: ConceptPanel[];
-  past: ConceptPanel[][];
-  future: ConceptPanel[][];
+  past: HistoryEntry[];
+  future: HistoryEntry[];
   selectedIds: number[];
   tool: Tool;
   params: LayoutParams;
@@ -47,15 +50,15 @@ export type StudioState = {
   // the layout is untouched by hand.
   generated: { panels: ConceptPanel[]; params: LayoutParams; shading: string } | null;
   // True from loading a building without a saved layout until the first
-  // array is generated. A layout from a link or draft — even an empty one —
-  // is kept as it is.
-  autoFill: boolean;
+  // array is generated: the roof starts empty so keep-out areas can be drawn
+  // first. A layout from a link or draft — even an empty one — is not pristine.
+  pristine: boolean;
   notice: NoticeKey | null;
 };
 
 export type StudioAction =
   | { type: 'select-building'; location: LatLng; label: string }
-  | { type: 'building-loaded'; location: LatLng; model: RoofModelData; insights: BuildingInsights | null; panels?: ConceptPanel[]; params?: LayoutParams; notice?: NoticeKey | null }
+  | { type: 'building-loaded'; location: LatLng; model: RoofModelData; insights: BuildingInsights | null; panels?: ConceptPanel[]; params?: LayoutParams; keepOut?: KeepOutZone[]; notice?: NoticeKey | null }
   | { type: 'restore-layout'; panels: ConceptPanel[]; params: LayoutParams }
   | { type: 'building-failed'; status: 'no-model' | 'outside' | 'error' }
   | { type: 'neighbors-loaded'; buildingId: string; neighbors: NeighborMesh }
@@ -63,6 +66,9 @@ export type StudioAction =
   | { type: 'set-step'; step: Step }
   | { type: 'set-tool'; tool: Tool }
   | { type: 'set-params'; params: Partial<LayoutParams> }
+  | { type: 'add-zone'; points: Position[] }
+  | { type: 'remove-zone'; id: number }
+  | { type: 'update-zone'; id: number; points: Position[] }
   // `record: false` replaces an untouched generated layout without a new undo step.
   | { type: 'generated'; panels: ConceptPanel[]; params: LayoutParams; shading: string; record: boolean }
   | { type: 'clear-panels' }
@@ -85,6 +91,7 @@ export const DEFAULT_PARAMS: LayoutParams = {
   alignToRoof: true,
   includeShaded: false,
   maxPanels: 0,
+  keepOut: [],
 };
 
 const HISTORY_LIMIT = 50;
@@ -99,7 +106,7 @@ export const initialStudioState: StudioState = {
   tool: 'select',
   params: DEFAULT_PARAMS,
   generated: null,
-  autoFill: false,
+  pristine: false,
   notice: null,
 };
 
@@ -112,16 +119,28 @@ function keepExisting(ids: number[], panels: ConceptPanel[]): number[] {
   return ids.filter((id) => present.has(id));
 }
 
-// Every edit that the user can undo goes through here.
-function commit(state: StudioState, panels: ConceptPanel[], selectedIds = state.selectedIds): StudioState {
+// One undo step: the panels, the keep-out areas and the generated layout of
+// that moment, so undoing an area also brings back the array it replaced.
+export type HistoryEntry = { panels: ConceptPanel[]; keepOut: KeepOutZone[]; generated: StudioState['generated'] };
+
+const entryOf = (state: StudioState, generated = state.generated): HistoryEntry =>
+  ({ panels: state.panels, keepOut: state.params.keepOut, generated });
+
+// Push the current state as an undo step. `generated` is what undoing to it
+// restores; a new array is undone to no generated layout at all, so it never
+// regenerates itself from settings changed since.
+function record(state: StudioState, generated = state.generated): StudioState {
+  return { ...state, past: [...state.past, entryOf(state, generated)].slice(-HISTORY_LIMIT), future: [] };
+}
+
+function restore(state: StudioState, entry: HistoryEntry): StudioState {
+  return { ...state, panels: entry.panels, params: { ...state.params, keepOut: entry.keepOut }, generated: entry.generated, selectedIds: [] };
+}
+
+// Every panel edit that the user can undo goes through here.
+function commit(state: StudioState, panels: ConceptPanel[], selectedIds = state.selectedIds, undoGenerated = state.generated): StudioState {
   if (panels === state.panels) return state;
-  return {
-    ...state,
-    panels,
-    past: [...state.past, state.panels].slice(-HISTORY_LIMIT),
-    future: [],
-    selectedIds: keepExisting(selectedIds, panels),
-  };
+  return { ...record(state, undoGenerated), panels, selectedIds: keepExisting(selectedIds, panels) };
 }
 
 export function canDesign(state: StudioState): boolean {
@@ -148,7 +167,8 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'select-building':
       return {
         ...initialStudioState,
-        params: state.params,
+        // Settings carry over to the next building; its zones do not.
+        params: { ...state.params, keepOut: [] },
         tool: state.tool,
         building: { status: 'loading', location: action.location, label: action.label, model: null, insights: null, neighbors: null, neighborStatus: 'idle' },
       };
@@ -161,12 +181,12 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         past: [],
         future: [],
         notice: action.notice ?? null,
-        params: action.params ?? state.params,
-        autoFill: action.panels === undefined,
+        params: action.params ?? (action.keepOut ? { ...state.params, keepOut: action.keepOut } : state.params),
+        pristine: action.panels === undefined,
         step: action.panels !== undefined ? 'design' : state.step,
       };
     case 'restore-layout':
-      return { ...commit(state, action.panels, []), params: action.params, generated: null, autoFill: false };
+      return { ...commit(state, action.panels, []), params: action.params, generated: null, pristine: false };
     case 'building-failed':
       if (state.building.status !== 'loading') return state;
       return { ...state, building: { ...state.building, status: action.status } };
@@ -187,10 +207,24 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, tool: action.tool, selectedIds: action.tool === 'select' ? state.selectedIds : [] };
     case 'set-params':
       return { ...state, params: { ...state.params, ...action.params } };
+    case 'add-zone': {
+      const id = state.params.keepOut.reduce((max, zone) => Math.max(max, zone.id), 0) + 1;
+      const recorded = record(state);
+      return { ...recorded, params: { ...state.params, keepOut: [...state.params.keepOut, { id, points: action.points }] } };
+    }
+    case 'update-zone': {
+      const recorded = record(state);
+      return { ...recorded, params: { ...state.params, keepOut: state.params.keepOut.map((zone) => (zone.id === action.id ? { ...zone, points: action.points } : zone)) } };
+    }
+    case 'remove-zone': {
+      if (!state.params.keepOut.some((zone) => zone.id === action.id)) return state;
+      const recorded = record(state);
+      return { ...recorded, params: { ...state.params, keepOut: state.params.keepOut.filter((zone) => zone.id !== action.id) } };
+    }
     case 'generated': {
       const generated = { panels: action.panels, params: action.params, shading: action.shading };
-      if (!action.record) return { ...state, panels: action.panels, selectedIds: [], generated, autoFill: false };
-      return { ...commit(state, action.panels, []), generated, autoFill: false };
+      if (!action.record) return { ...state, panels: action.panels, selectedIds: [], generated, pristine: false };
+      return { ...commit(state, action.panels, [], null), generated, pristine: false };
     }
     case 'clear-panels':
       return state.panels.length ? commit(state, [], []) : state;
@@ -221,7 +255,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return commit(state, panels);
     }
     case 'checkpoint':
-      return { ...state, past: [...state.past, state.panels].slice(-HISTORY_LIMIT), future: [] };
+      return record(state);
     case 'move-panels': {
       const moves = new Map(action.positions);
       return { ...state, panels: state.panels.map((panel) => moves.has(panel.id) ? { ...panel, position: moves.get(panel.id)! } : panel) };
@@ -237,12 +271,12 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'undo': {
       const previous = state.past.at(-1);
       if (!previous) return state;
-      return { ...state, panels: previous, past: state.past.slice(0, -1), future: [state.panels, ...state.future], selectedIds: [] };
+      return { ...restore(state, previous), past: state.past.slice(0, -1), future: [entryOf(state), ...state.future] };
     }
     case 'redo': {
       const next = state.future[0];
       if (!next) return state;
-      return { ...state, panels: next, past: [...state.past, state.panels], future: state.future.slice(1), selectedIds: [] };
+      return { ...restore(state, next), past: [...state.past, entryOf(state)], future: state.future.slice(1) };
     }
     case 'reset':
       return { ...initialStudioState, params: state.params };
