@@ -19,7 +19,7 @@ function run(actions: StudioAction[], state: StudioState = initialStudioState): 
 
 const loaded: StudioAction[] = [
   { type: 'select-building', location, label: 'Test' },
-  { type: 'building-loaded', location, model, insights: null },
+  { type: 'building-loaded', location, model },
 ];
 
 describe('studioReducer', () => {
@@ -35,7 +35,7 @@ describe('studioReducer', () => {
     const failed = run([
       { type: 'select-building', location, label: 'Test' },
       { type: 'building-failed', status: 'no-model' },
-      { type: 'building-loaded', location, model, insights: null },
+      { type: 'building-loaded', location, model },
     ]);
     expect(failed.building.status).toBe('no-model');
   });
@@ -43,7 +43,7 @@ describe('studioReducer', () => {
   it('opens a shared layout straight in the design step', () => {
     const shared = run([
       { type: 'select-building', location, label: 'Shared' },
-      { type: 'building-loaded', location, model, insights: null, panels: [panel(1, 0)] },
+      { type: 'building-loaded', location, model, panels: [panel(1, 0)] },
     ]);
     expect(shared.step).toBe('design');
     expect(shared.past).toEqual([]);

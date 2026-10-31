@@ -55,3 +55,7 @@ Annual energy is computed per panel from a month × UTC-hour table of the PVGIS-
 ## ADR-014 — Map footprint index
 
 Footprints for all buildings are extracted once into `data/processed/nyc-footprints.sqlite` (WGS84 rings simplified to 0.2 m, height, address, R-tree on bounds) rather than parsed on demand, so a street-level map view returns in about 0.1 s. The main CityGML index stays read-only. Picking an outline loads the model by gml id; clicking elsewhere still falls back to the point lookup.
+
+## ADR-015 — Static site without Google services
+
+Supersedes the server routes of ADR-012 and ADR-014 and the Google Solar role in ADR-013. The app is exported as a static site for GitHub Pages. All NYC / TUM buildings are pre-cut into gzip tiles on a 0.003° × 0.0025° grid (about 250 m): CityGML surfaces at centimeter precision for models, WGS84 rings for map outlines, plus an index of non-empty tiles (about 400 MB in total). The browser fetches the tiles around a pick, matches the building, snaps clicks within 25 m to the nearest one, and builds the neighbor occluders itself. Google is replaced by NYS ITS orthoimagery (MapLibre raster source and a single export image under the 3D scene), NYC Planning Labs GeoSearch for addresses, the default 400 W module, and the EPA eGRID2023 NYCW grid factor (442 kg CO₂/MWh). Nothing needs a key or a server.

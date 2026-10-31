@@ -4,13 +4,9 @@ import { useI18n } from '@/lib/i18n';
 import type { Building } from '@/lib/design/state';
 import { Eyebrow, primaryButtonClass, SidePanel } from './ui';
 
-function formatImageryDate({ year, month, day }: { year: number; month: number; day: number }) {
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
 export function SelectPanel({ building, onStart }: { building: Building; onStart: () => void }) {
   const { t } = useI18n();
-  const { status, model, insights } = building;
+  const { status, model } = building;
 
   if (status === 'idle') {
     return (
@@ -57,12 +53,6 @@ export function SelectPanel({ building, onStart }: { building: Building; onStart
         <p>{t.select.modelHeight(model.modelHeightMeters?.toFixed(1) ?? '—', model.modelRelease ?? '')}</p>
         <p className="pt-1 text-[12px] text-label-tertiary">{t.select.modelSource}</p>
       </div>
-      <p className={`mt-4 flex items-start gap-2 rounded-[12px] px-3 py-2 text-[13px] leading-5 ${insights ? 'bg-fill text-label' : 'bg-warning/12 text-[#9a5b00]'}`}>
-        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${insights ? 'bg-success' : 'bg-warning'}`} />
-        {insights
-          ? t.select.googleReady(t.quality[insights.imageryQuality], formatImageryDate(insights.imageryDate))
-          : t.select.googleMissing}
-      </p>
       <button type="button" onClick={onStart} className={`${primaryButtonClass} mt-5`}>{t.select.start}</button>
     </SidePanel>
   );

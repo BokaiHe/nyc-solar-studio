@@ -1,6 +1,10 @@
 // Editable UI default. Replace after final Con Edison tariff verification.
 export const DEFAULT_ELECTRICITY_RATE_USD_PER_KWH = 0.338;
 
+// EPA eGRID2023, NYCW subregion (New York City and Westchester): total output
+// CO2 rate 974.66 lb/MWh.
+export const NYC_GRID_CARBON_KG_PER_MWH = 442;
+
 // 2020 EIA RECS, New York, most-used refrigerator: 542 kWh/year.
 export const REFRIGERATOR_KWH_PER_YEAR = 542;
 

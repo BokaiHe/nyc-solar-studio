@@ -14,6 +14,7 @@ All notable changes will be documented in this file.
 
 ### Changed
 
+- Run as a static site on GitHub Pages with no server or API keys: buildings ship as pre-cut gzip tiles in `public/data/nyc` (`npm run data:build-tiles`), looked up and turned into models and neighbor occluders in the browser. The map is MapLibre over NYS ITS orthoimagery (also used under the 3D scene), address search uses NYC Planning Labs GeoSearch, and Google Maps, Places, Map Tiles and Solar are removed; the module defaults to 400 W and CO₂ uses the EPA eGRID2023 NYCW factor. A Pages workflow exports and deploys the site.
 - A roof now opens empty with a prompt to outline keep-out areas first, then generate the array; generated arrays still follow later setting and keep-out changes until edited by hand.
 - Editing tools and view toggles sit in a larger toolbar along the top; floating panels are more opaque so text stays legible over satellite imagery.
 - The results page explains its basis: whether keep-out areas were deducted, that annual energy uses New York's typical weather year independent of the sun bar (with a PVWatts-equivalent range, as ERA5 reads 5–8% sunnier), what the sun bar shows, and the model, module and loss assumptions.

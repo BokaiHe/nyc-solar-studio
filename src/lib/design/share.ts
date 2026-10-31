@@ -65,7 +65,8 @@ export function encodeSharedDesign(design: SharedDesign): string {
   });
   if (design.panels.length) params.set('p3', encodePanels(design.panels));
   if (design.keepOut.length) params.set('k', encodeZones(design.keepOut));
-  return `/b?${params}`;
+  // The trailing slash matches the static export's page folders.
+  return `/b/?${params}`;
 }
 
 export function parseSharedDesign(search: string): SharedDesign | null {

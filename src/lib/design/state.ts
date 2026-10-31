@@ -1,4 +1,4 @@
-import type { BuildingInsights, ConceptPanel, LatLng, NeighborMesh, RoofModelData } from '@/lib/solar/types';
+import type { ConceptPanel, LatLng, NeighborMesh, RoofModelData } from '@/lib/solar/types';
 import type { KeepOutZone } from './keep-out';
 
 export type Step = 'select' | 'design' | 'results';
@@ -29,8 +29,6 @@ export type Building = {
   location: LatLng | null;
   label: string;
   model: RoofModelData | null;
-  // Google Solar data is optional context (panel size, grid factor); design never waits on it.
-  insights: BuildingInsights | null;
   // Surrounding buildings that can shade the roof, loaded after the model.
   neighbors: NeighborMesh | null;
   neighborStatus: 'idle' | 'loading' | 'ready' | 'error';
@@ -58,7 +56,7 @@ export type StudioState = {
 
 export type StudioAction =
   | { type: 'select-building'; location: LatLng; label: string }
-  | { type: 'building-loaded'; location: LatLng; model: RoofModelData; insights: BuildingInsights | null; panels?: ConceptPanel[]; params?: LayoutParams; keepOut?: KeepOutZone[]; notice?: NoticeKey | null }
+  | { type: 'building-loaded'; location: LatLng; model: RoofModelData; panels?: ConceptPanel[]; params?: LayoutParams; keepOut?: KeepOutZone[]; notice?: NoticeKey | null }
   | { type: 'restore-layout'; panels: ConceptPanel[]; params: LayoutParams }
   | { type: 'building-failed'; status: 'no-model' | 'outside' | 'error' }
   | { type: 'neighbors-loaded'; buildingId: string; neighbors: NeighborMesh }
@@ -98,7 +96,7 @@ const HISTORY_LIMIT = 50;
 
 export const initialStudioState: StudioState = {
   step: 'select',
-  building: { status: 'idle', location: null, label: '', model: null, insights: null, neighbors: null, neighborStatus: 'idle' },
+  building: { status: 'idle', location: null, label: '', model: null, neighbors: null, neighborStatus: 'idle' },
   panels: [],
   past: [],
   future: [],
@@ -170,13 +168,13 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         // Settings carry over to the next building; its zones do not.
         params: { ...state.params, keepOut: [] },
         tool: state.tool,
-        building: { status: 'loading', location: action.location, label: action.label, model: null, insights: null, neighbors: null, neighborStatus: 'idle' },
+        building: { status: 'loading', location: action.location, label: action.label, model: null, neighbors: null, neighborStatus: 'idle' },
       };
     case 'building-loaded':
       if (state.building.status !== 'loading') return state;
       return {
         ...state,
-        building: { ...state.building, status: 'ready', location: action.location, model: action.model, insights: action.insights, neighborStatus: action.model.nycBuildingId ? 'loading' : 'error' },
+        building: { ...state.building, status: 'ready', location: action.location, model: action.model, neighborStatus: action.model.nycBuildingId ? 'loading' : 'error' },
         panels: action.panels ?? [],
         past: [],
         future: [],

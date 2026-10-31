@@ -15,7 +15,7 @@ describe('shared design links', () => {
   it('round-trips location, building and panels at centimeter precision', () => {
     const path = encodeSharedDesign(design);
 
-    expect(path.startsWith('/b?')).toBe(true);
+    expect(path.startsWith('/b/?')).toBe(true);
     expect(parseSharedDesign(path.split('?')[1])).toEqual(design);
   });
 

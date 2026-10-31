@@ -44,7 +44,7 @@ describe('local design workspace', () => {
   it('restores an empty draft into design without treating it as a first auto fill', () => {
     const state = studioReducer(initialStudioState, { type: 'select-building', location: draft.location, label: draft.label });
     const restored = studioReducer(state, { type: 'building-loaded', location: draft.location,
-      model: { nycBuildingId: 'b1' } as RoofModelData, insights: null, panels: [], params: draft.params });
+      model: { nycBuildingId: 'b1' } as RoofModelData, panels: [], params: draft.params });
     expect(restored.step).toBe('design');
     expect(restored.pristine).toBe(false);
     expect(restored.past).toEqual([]);

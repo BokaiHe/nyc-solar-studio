@@ -22,9 +22,11 @@ import { canDesign, initialStudioState, isUntouchedLayout, sameParams, shadingKe
 import { useI18n } from '@/lib/i18n';
 import { loadBasemap, type Basemap } from '@/lib/map-tiles';
 import { summarizeDesign } from '@/lib/solar/calculations';
-import { DEFAULT_ELECTRICITY_RATE_USD_PER_KWH, DEMO_BUILDINGS } from '@/lib/solar/config';
+import { DEFAULT_ELECTRICITY_RATE_USD_PER_KWH, DEMO_BUILDINGS, NYC_GRID_CARBON_KG_PER_MWH } from '@/lib/solar/config';
 import { currentNewYorkDateAndMinute, getSunSnapshot, newYorkDateTimeToDate, panelDirectLightFactor } from '@/lib/solar/sun';
-import type { BuildingInsights, ConceptPanel, LatLng, NeighborMesh, RoofModelData } from '@/lib/solar/types';
+import type { ConceptPanel, LatLng, RoofModelData } from '@/lib/solar/types';
+import type { CityBuilding } from '@/lib/nyc/geometry';
+import { findBuildingAt, findBuildingById, neighborMesh, roofModel } from '@/lib/nyc/static-tiles';
 import { DesignPanel } from './design-panel';
 import { OptimizeCard, type OptimizerState } from './optimize-card';
 import { ResultsPanel } from './results-panel';
@@ -36,17 +38,9 @@ import { SunBar } from './sun-bar';
 import { WorkspaceTools, type ComparisonMetrics } from './workspace-tools';
 import { cardClass, pillClass } from './ui';
 
-class HttpError extends Error {
-  constructor(readonly status: number) {
-    super(`HTTP ${status}`);
-  }
-}
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) throw new HttpError(response.status);
-  return response.json() as Promise<T>;
-}
+// The site's path prefix on GitHub Pages (empty locally).
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+const HOME_PATH = `${BASE_PATH}/`;
 
 function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
@@ -62,7 +56,7 @@ export function SolarStudio() {
   const { t, lang, setLang } = useI18n();
   const [state, dispatch] = useReducer(studioReducer, initialStudioState);
   const { step, building, panels, selectedIds, tool, params } = state;
-  const [mapError, setMapError] = useState<'forbidden' | 'failed' | null>(null);
+  const [mapError, setMapError] = useState<'failed' | null>(null);
   const [examplesOpen, setExamplesOpen] = useState(false);
   const [rate, setRate] = useState(DEFAULT_ELECTRICITY_RATE_USD_PER_KWH);
   const [heatmap, setHeatmap] = useState(false);
@@ -95,7 +89,6 @@ export function SolarStudio() {
   const didLoadSharedRef = useRef(false);
   const searchParams = useSearchParams();
   const shared = useMemo(() => parseSharedDesign(searchParams.toString()), [searchParams]);
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
   // Drops any running layout; the next request starts a fresh worker.
   const stopLayoutWorker = useCallback(() => {
@@ -121,32 +114,33 @@ export function SolarStudio() {
     setLayoutBusy(false);
     setOptimizer({ status: 'idle' });
     setExamplesOpen(false);
-    if (!sharedDesign && window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+    if (!sharedDesign && window.location.pathname !== HOME_PATH) window.history.replaceState(null, '', HOME_PATH);
     // No model exists outside the study area; say so without asking the server.
     if (!buildingId && !sharedDesign && !insideStudyArea(location)) {
       dispatch({ type: 'building-failed', status: 'outside' });
       return;
     }
-    const query = `lat=${location.latitude}&lng=${location.longitude}`;
-    const [direct, solar] = await Promise.allSettled([
-      fetchJson<RoofModelData>(buildingId ? `/api/solar/roof-model?id=${encodeURIComponent(buildingId)}` : `/api/solar/roof-model?${query}`),
-      fetchJson<BuildingInsights>(`/api/solar?${query}`),
-    ]);
-    let model = direct;
-    // A click on a street or yard misses every footprint; Google snaps to the
-    // nearest building, so retry the model lookup at its center.
-    if (model.status === 'rejected' && model.reason instanceof HttpError && model.reason.status === 404 && solar.status === 'fulfilled') {
-      const { latitude, longitude } = solar.value.center;
-      [model] = await Promise.allSettled([fetchJson<RoofModelData>(`/api/solar/roof-model?lat=${latitude}&lng=${longitude}`)]);
-    }
-    if (request !== requestRef.current) return;
-    if (model.status === 'rejected') {
-      const missing = model.reason instanceof HttpError && model.reason.status === 404;
-      dispatch({ type: 'building-failed', status: missing ? 'no-model' : 'error' });
+    // Buildings come from the static tiles; a click on a street or yard snaps
+    // to the nearest building close by.
+    let target: CityBuilding | null;
+    try {
+      target = buildingId ? await findBuildingById(buildingId, location) : await findBuildingAt(location);
+    } catch {
+      if (request === requestRef.current) dispatch({ type: 'building-failed', status: 'error' });
       return;
     }
-    const insights = solar.status === 'fulfilled' && solar.value.solarPotential?.solarPanels?.length ? solar.value : null;
-    const sameBuilding = sharedDesign && sharedDesign.buildingId === model.value.nycBuildingId;
+    if (request !== requestRef.current) return;
+    let model: RoofModelData | null = null;
+    try {
+      model = target && roofModel(target);
+    } catch {
+      model = null;
+    }
+    if (!target || !model) {
+      dispatch({ type: 'building-failed', status: 'no-model' });
+      return;
+    }
+    const sameBuilding = sharedDesign && sharedDesign.buildingId === model.nycBuildingId;
     if (draft && sameBuilding) {
       setComparisons(draft.comparisons);
       setRestoredModule({ panelSize: draft.panelSize, panelWatts: draft.panelWatts });
@@ -155,19 +149,18 @@ export function SolarStudio() {
     setDraftOffer(null);
     dispatch({
       type: 'building-loaded',
-      location: model.value.center,
-      model: model.value,
-      insights,
+      location: model.center,
+      model,
       panels: sameBuilding ? sharedDesign.panels : undefined,
       params: draft && sameBuilding ? draft.params : undefined,
       keepOut: sameBuilding ? sharedDesign.keepOut : undefined,
       notice: sharedDesign && !sameBuilding ? 'sharedModelChanged' : null,
     });
     // Surrounding buildings arrive separately so the model shows without waiting.
-    const modelId = model.value.nycBuildingId;
+    const modelId = model.nycBuildingId;
     if (!modelId) return;
     try {
-      const neighbors = await fetchJson<NeighborMesh>(`/api/solar/neighbors?id=${encodeURIComponent(modelId)}`);
+      const neighbors = await neighborMesh(target);
       if (request === requestRef.current) dispatch({ type: 'neighbors-loaded', buildingId: modelId, neighbors });
     } catch {
       if (request === requestRef.current) dispatch({ type: 'neighbors-failed', buildingId: modelId });
@@ -213,11 +206,8 @@ export function SolarStudio() {
     return () => window.clearInterval(timer);
   }, [playing]);
 
-  const { model, insights, location } = building;
-  const potential = insights?.solarPotential ?? null;
-  const panelSize = useMemo(() => restoredModule?.panelSize ?? (potential
-    ? { widthMeters: potential.panelWidthMeters, heightMeters: potential.panelHeightMeters }
-    : DEFAULT_PANEL_SIZE), [potential, restoredModule]);
+  const { model, location } = building;
+  const panelSize = restoredModule?.panelSize ?? DEFAULT_PANEL_SIZE;
   const minSpacing = panelSize.widthMeters * 0.9;
   // Shared by live updates, so roof analysis and sun visibility are reused.
   const layoutContext = useMemo(() => model ? createLayoutContext(model, building.neighbors) : null, [building.neighbors, model]);
@@ -227,14 +217,14 @@ export function SolarStudio() {
   // without it if the Map Tiles API is unavailable.
   useEffect(() => {
     const buildingId = model?.nycBuildingId;
-    if (!model || !buildingId || !apiKey) return;
+    if (!model || !buildingId) return;
     const controller = new AbortController();
     const radius = Math.min(250, Math.max(model.widthMeters, model.depthMeters) / 2 + 60);
-    loadBasemap(model.center, radius, apiKey, controller.signal)
+    loadBasemap(model.center, radius, controller.signal)
       .then((basemap) => setLoadedBasemap({ buildingId, basemap }))
       .catch(() => undefined);
     return () => controller.abort();
-  }, [apiKey, model]);
+  }, [model]);
   const basemap = loadedBasemap && loadedBasemap.buildingId === model?.nycBuildingId ? loadedBasemap.basemap : null;
   const shading = shadingKey(building);
   const sun = useMemo(
@@ -245,7 +235,7 @@ export function SolarStudio() {
     if (!sun || !panels.length) return null;
     return panels.reduce((sum, panel) => sum + panelDirectLightFactor(panel.azimuthDegrees, panel.tiltDegrees, sun), 0) / panels.length;
   }, [panels, sun]);
-  const panelWatts = restoredModule?.panelWatts ?? potential?.panelCapacityWatts ?? DEFAULT_PANEL_WATTS;
+  const panelWatts = restoredModule?.panelWatts ?? DEFAULT_PANEL_WATTS;
   // Energy follows the design once edits pause, so dragging panels on a big
   // roof does not re-estimate every panel on each pointer move.
   const [energyPanels, setEnergyPanels] = useState(panels);
@@ -317,9 +307,9 @@ export function SolarStudio() {
     panelWatts,
     annualAcKwh: (energy?.totalYield ?? 0) * (panelWatts / 1000),
     efficiency: energy?.efficiency ?? 0,
-    carbonKgPerMwh: potential?.carbonOffsetFactorKgPerMwh ?? null,
+    carbonKgPerMwh: NYC_GRID_CARBON_KG_PER_MWH,
     electricityRateUsdPerKwh: rate,
-  }), [energy, panelWatts, panels.length, potential, rate]);
+  }), [energy, panelWatts, panels.length, rate]);
 
   // Auto layout runs in a worker that keeps the roof between requests; the
   // roof is sent again only when the main thread's context changes.
@@ -476,7 +466,7 @@ export function SolarStudio() {
   const copyShareLink = useCallback(async () => {
     if (!location || !model?.nycBuildingId) return;
     const path = encodeSharedDesign({ location, buildingId: model.nycBuildingId, panels, keepOut: params.keepOut });
-    await navigator.clipboard.writeText(`${window.location.origin}${path}`);
+    await navigator.clipboard.writeText(`${window.location.origin}${BASE_PATH}${path}`);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2500);
   }, [location, model, panels, params.keepOut]);
@@ -493,7 +483,7 @@ export function SolarStudio() {
     setOptimizer({ status: 'idle' });
     setComparisons(emptyComparisons());
     setPlaying(false);
-    if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+    if (window.location.pathname !== HOME_PATH) window.history.replaceState(null, '', HOME_PATH);
   }, [stopLayoutWorker]);
 
   const restoreDraft = useCallback(() => {
@@ -506,18 +496,6 @@ export function SolarStudio() {
     setDraftOffer(null);
     try { localStorage.removeItem(DRAFT_KEY); } catch { setSaveStatus('error'); }
   }, []);
-
-  if (!apiKey) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#e9edf2] p-6">
-        <section className={`${cardClass} max-w-lg p-8`}>
-          <p className="text-[13px] font-semibold text-warning">{t.apiKey.title}</p>
-          <h1 className="mt-1 text-[28px] font-bold tracking-[-0.02em]">NYC Solar Studio</h1>
-          <p className="mt-3 text-[15px] leading-6 text-label-secondary">{t.apiKey.before}<code>.env.local</code>{t.apiKey.after}</p>
-        </section>
-      </main>
-    );
-  }
 
   const designReady = canDesign(state);
   const editing = step === 'design';
@@ -547,16 +525,14 @@ export function SolarStudio() {
       {/* The map stays mounted so returning to the select step does not reload it. */}
       <div className={step === 'select' ? '' : 'invisible'}>
         <Map2DCanvas
-          apiKey={apiKey}
           location={location}
-          buildingBounds={insights?.boundingBox}
           showMarker={building.status !== 'idle'}
           selectedBuildingId={building.model?.nycBuildingId ?? null}
           onSelectLocation={(picked) => void loadBuilding(picked, t.places.mapPick)}
           onSelectBuilding={(picked, point) => void loadBuilding(point, picked.address || t.places.mapPick, undefined, picked.id)}
           onHoverBuilding={setHoveredBuilding}
           onOutlinesVisibleChange={setOutlinesVisible}
-          onMapError={(message) => setMapError(message?.includes('403') ? 'forbidden' : 'failed')}
+          onMapError={() => setMapError('failed')}
         />
       </div>
       {showScene && (
@@ -587,9 +563,7 @@ export function SolarStudio() {
           {/* Its own full-width row on phones; inline on wider screens. */}
           <div className={`${pillClass} order-last w-full p-1.5 md:order-none md:w-[360px]`}>
             <PlaceSearch
-              apiKey={apiKey}
               placeholder={t.header.search}
-              fallbackLabel={t.places.fallback}
               disabled={building.status === 'loading'}
               onSelect={(place) => void loadBuilding({ latitude: place.latitude, longitude: place.longitude }, place.label)}
             />

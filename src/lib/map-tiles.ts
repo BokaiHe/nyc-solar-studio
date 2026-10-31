@@ -1,8 +1,16 @@
 import type { LatLng } from '@/lib/solar/types';
 
-// Satellite imagery around a building from the Google Map Tiles API (2D
-// tiles), stitched into one canvas and placed in the building's scene frame:
-// meters east (x) and south (z) of its center.
+// New York State orthoimagery (NYS ITS Geospatial Services, latest statewide
+// flight): free, keyless and served with CORS, so the static site can use it
+// both as the map's satellite layer and under the 3D scene.
+export const ORTHO_SERVICE = 'https://orthos.its.ny.gov/arcgis/rest/services/wms/Latest/MapServer';
+export const ORTHO_ATTRIBUTION = 'Imagery © NYS ITS Geospatial Services';
+
+// The map's raster source: MapLibre fills in each tile's Web Mercator bounds.
+export const ORTHO_TILE_URL = `${ORTHO_SERVICE}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=512,512&format=jpg&f=image`;
+
+// Imagery around a building, placed in its scene frame: meters east (x) and
+// south (z) of its center.
 export type Basemap = {
   canvas: HTMLCanvasElement;
   minX: number;
@@ -12,96 +20,26 @@ export type Basemap = {
   attribution: string;
 };
 
-const TILE_API = 'https://tile.googleapis.com';
-const TILE_PIXELS = 256;
-const METERS_PER_DEGREE = 111320;
-// At most this many tiles across, which bounds the download and canvas size.
-const MAX_TILES_ACROSS = 8;
-const MAX_ZOOM = 19;
+const EARTH_RADIUS = 6378137;
+// Aim for about 15 cm per pixel, within the service's image size limit.
+const METERS_PER_PIXEL = 0.15;
+const MAX_PIXELS = 2048;
 
-type Session = { token: string; expiresAt: number };
-let session: Promise<Session> | null = null;
-
-function satelliteSession(apiKey: string): Promise<Session> {
-  const reuse = session;
-  if (reuse) {
-    return reuse.then((current) => (current.expiresAt - Date.now() > 60_000 ? current : (session = null, satelliteSession(apiKey))));
-  }
-  session = fetch(`${TILE_API}/v1/createSession?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mapType: 'satellite', language: 'en-US', region: 'US' }),
-  }).then(async (response) => {
-    if (!response.ok) throw new Error(`Map Tiles session failed (${response.status})`);
-    const body = await response.json() as { session: string; expiry: string };
-    return { token: body.session, expiresAt: Number(body.expiry) * 1000 };
-  });
-  session.catch(() => { session = null; });
-  return session;
-}
-
-// Web Mercator tile coordinates.
-const tileX = (longitude: number, zoom: number) => ((longitude + 180) / 360) * 2 ** zoom;
-const tileY = (latitude: number, zoom: number) => {
-  const phi = (latitude * Math.PI) / 180;
-  return ((1 - Math.log(Math.tan(phi) + 1 / Math.cos(phi)) / Math.PI) / 2) * 2 ** zoom;
-};
-const tileLongitude = (x: number, zoom: number) => (x / 2 ** zoom) * 360 - 180;
-const tileLatitude = (y: number, zoom: number) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / 2 ** zoom))) * 180) / Math.PI;
-
-async function loadTile(url: string, signal: AbortSignal): Promise<ImageBitmap | null> {
+// One image covering `radiusMeters` around `center`.
+export async function loadBasemap(center: LatLng, radiusMeters: number, signal: AbortSignal): Promise<Basemap> {
+  const x = (center.longitude * Math.PI * EARTH_RADIUS) / 180;
+  const y = EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + (center.latitude * Math.PI) / 360));
+  // Mercator stretches ground distances by 1 / cos(latitude).
+  const half = radiusMeters / Math.cos((center.latitude * Math.PI) / 180);
+  const pixels = Math.min(MAX_PIXELS, Math.ceil((2 * radiusMeters) / METERS_PER_PIXEL));
+  const url = `${ORTHO_SERVICE}/export?bbox=${x - half},${y - half},${x + half},${y + half}&bboxSR=3857&imageSR=3857&size=${pixels},${pixels}&format=jpg&f=image`;
   const response = await fetch(url, { signal });
-  if (!response.ok) return null;
-  return createImageBitmap(await response.blob());
-}
-
-// Imagery within `radiusMeters` of `center`, at the finest zoom (up to 19,
-// Google's satellite limit over New York) that keeps the area within
-// MAX_TILES_ACROSS tiles.
-export async function loadBasemap(center: LatLng, radiusMeters: number, apiKey: string, signal: AbortSignal): Promise<Basemap> {
-  const { token } = await satelliteSession(apiKey);
-  const xScale = METERS_PER_DEGREE * Math.cos((center.latitude * Math.PI) / 180);
-  const north = center.latitude + radiusMeters / METERS_PER_DEGREE;
-  const south = center.latitude - radiusMeters / METERS_PER_DEGREE;
-  const west = center.longitude - radiusMeters / xScale;
-  const east = center.longitude + radiusMeters / xScale;
-
-  let zoom = MAX_ZOOM;
-  while (zoom > 15 && Math.floor(tileX(east, zoom)) - Math.floor(tileX(west, zoom)) + 1 > MAX_TILES_ACROSS) zoom -= 1;
-  const x0 = Math.floor(tileX(west, zoom)), x1 = Math.floor(tileX(east, zoom));
-  const y0 = Math.floor(tileY(north, zoom)), y1 = Math.floor(tileY(south, zoom));
-
-  const query = `session=${encodeURIComponent(token)}&key=${encodeURIComponent(apiKey)}`;
-  const jobs: Array<Promise<[number, number, ImageBitmap | null]>> = [];
-  for (let y = y0; y <= y1; y += 1) {
-    for (let x = x0; x <= x1; x += 1) {
-      jobs.push(loadTile(`${TILE_API}/v1/2dtiles/${zoom}/${x}/${y}?${query}`, signal).then((image) => [x, y, image]));
-    }
-  }
-  const viewport = fetch(
-    `${TILE_API}/tile/v1/viewport?${query}&zoom=${zoom}&north=${north}&south=${south}&east=${east}&west=${west}`,
-    { signal },
-  ).then((response) => (response.ok ? response.json() : null)).catch(() => null) as Promise<{ copyright?: string } | null>;
-
+  if (!response.ok) throw new Error(`Orthoimagery unavailable (${response.status})`);
+  const image = await createImageBitmap(await response.blob());
   const canvas = document.createElement('canvas');
-  canvas.width = (x1 - x0 + 1) * TILE_PIXELS;
-  canvas.height = (y1 - y0 + 1) * TILE_PIXELS;
-  const context = canvas.getContext('2d')!;
-  for (const [x, y, image] of await Promise.all(jobs)) {
-    if (!image) continue;
-    context.drawImage(image, (x - x0) * TILE_PIXELS, (y - y0) * TILE_PIXELS);
-    image.close();
-  }
-  const copyright = (await viewport)?.copyright;
-
-  // Within a few hundred meters the Mercator grid is close to linear, so the
-  // canvas maps to a rectangle in the scene frame.
-  return {
-    canvas,
-    minX: (tileLongitude(x0, zoom) - center.longitude) * xScale,
-    maxX: (tileLongitude(x1 + 1, zoom) - center.longitude) * xScale,
-    minZ: -(tileLatitude(y0, zoom) - center.latitude) * METERS_PER_DEGREE,
-    maxZ: -(tileLatitude(y1 + 1, zoom) - center.latitude) * METERS_PER_DEGREE,
-    attribution: copyright ? `Google · ${copyright}` : 'Imagery © Google',
-  };
+  canvas.width = image.width;
+  canvas.height = image.height;
+  canvas.getContext('2d')!.drawImage(image, 0, 0);
+  image.close();
+  return { canvas, minX: -radiusMeters, maxX: radiusMeters, minZ: -radiusMeters, maxZ: radiusMeters, attribution: ORTHO_ATTRIBUTION };
 }
