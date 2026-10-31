@@ -4,6 +4,12 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Per-panel annual yield colors on a fixed ideal-module reference scale, with annual kWh, tilt and azimuth for the selected module.
+- A/B layout snapshots, same-building energy comparisons and undoable panel layout application in both design and results panels.
+- Browser-local recovery of the latest building's design, A/B slots, module specifications and parameters, including intentionally empty layouts. Explicit share links take precedence.
+
 ### Changed
 
 - Restructure the app into three steps — select building, 3D design, results — with one step navigation and a light card UI.

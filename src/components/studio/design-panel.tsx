@@ -6,7 +6,7 @@ import type { LayoutResult } from '@/lib/design/auto-layout';
 import { isUntouchedLayout, sameParams, type LayoutParams, type StudioAction, type StudioState } from '@/lib/design/state';
 import { Eyebrow, GroupTitle, PanelTitle, primaryButtonClass, secondaryButtonClass, SidePanel, SliderField, Switch } from './ui';
 
-export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBusy, neighborStatus, neighborCount, layoutResult, onNext, optimizer }: {
+export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBusy, neighborStatus, neighborCount, layoutResult, onNext, optimizer, workspace }: {
   state: StudioState;
   capacityKw: number;
   dispatch: Dispatch<StudioAction>;
@@ -18,6 +18,7 @@ export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBus
   onNext: () => void;
   // The best-layout search card, rendered under the layout status.
   optimizer: ReactNode;
+  workspace?: ReactNode;
 }) {
   const { t } = useI18n();
   // Phones start collapsed so the roof stays visible. The panel only mounts
@@ -77,6 +78,7 @@ export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBus
             </p>
           )}
 
+          {workspace}
           {optimizer}
 
           <div className="mt-5"><GroupTitle>{t.design.layoutTitle}</GroupTitle></div>

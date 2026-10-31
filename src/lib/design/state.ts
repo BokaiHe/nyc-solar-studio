@@ -46,12 +46,17 @@ export type StudioState = {
   // shadingKey) that produced it. While `panels` is still this exact array,
   // the layout is untouched by hand.
   generated: { panels: ConceptPanel[]; params: LayoutParams; shading: string } | null;
+  // True from loading a building without a saved layout until the first
+  // array is generated. A layout from a link or draft — even an empty one —
+  // is kept as it is.
+  autoFill: boolean;
   notice: NoticeKey | null;
 };
 
 export type StudioAction =
   | { type: 'select-building'; location: LatLng; label: string }
-  | { type: 'building-loaded'; location: LatLng; model: RoofModelData; insights: BuildingInsights | null; panels?: ConceptPanel[]; notice?: NoticeKey | null }
+  | { type: 'building-loaded'; location: LatLng; model: RoofModelData; insights: BuildingInsights | null; panels?: ConceptPanel[]; params?: LayoutParams; notice?: NoticeKey | null }
+  | { type: 'restore-layout'; panels: ConceptPanel[]; params: LayoutParams }
   | { type: 'building-failed'; status: 'no-model' | 'outside' | 'error' }
   | { type: 'neighbors-loaded'; buildingId: string; neighbors: NeighborMesh }
   | { type: 'neighbors-failed'; buildingId: string }
@@ -94,6 +99,7 @@ export const initialStudioState: StudioState = {
   tool: 'select',
   params: DEFAULT_PARAMS,
   generated: null,
+  autoFill: false,
   notice: null,
 };
 
@@ -155,8 +161,12 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         past: [],
         future: [],
         notice: action.notice ?? null,
-        step: action.panels?.length ? 'design' : state.step,
+        params: action.params ?? state.params,
+        autoFill: action.panels === undefined,
+        step: action.panels !== undefined ? 'design' : state.step,
       };
+    case 'restore-layout':
+      return { ...commit(state, action.panels, []), params: action.params, generated: null, autoFill: false };
     case 'building-failed':
       if (state.building.status !== 'loading') return state;
       return { ...state, building: { ...state.building, status: action.status } };
@@ -179,8 +189,8 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, params: { ...state.params, ...action.params } };
     case 'generated': {
       const generated = { panels: action.panels, params: action.params, shading: action.shading };
-      if (!action.record) return { ...state, panels: action.panels, selectedIds: [], generated };
-      return { ...commit(state, action.panels, []), generated };
+      if (!action.record) return { ...state, panels: action.panels, selectedIds: [], generated, autoFill: false };
+      return { ...commit(state, action.panels, []), generated, autoFill: false };
     }
     case 'clear-panels':
       return state.panels.length ? commit(state, [], []) : state;

@@ -1,10 +1,13 @@
 'use client';
 
+import type { ReactNode } from 'react';
+
 import { useI18n } from '@/lib/i18n';
 import type { DesignSummary } from '@/lib/solar/calculations';
 import { Eyebrow, Metric, PanelTitle, primaryButtonClass, secondaryButtonClass, SidePanel, SliderField } from './ui';
 
-export function ResultsPanel({ summary, rate, onRateChange, onShare, copied, onBack }: {
+export function ResultsPanel({ summary, rate, onRateChange, onShare, copied, onBack, workspace }: {
+  workspace?: ReactNode;
   summary: DesignSummary;
   rate: number;
   onRateChange: (rate: number) => void;
@@ -27,6 +30,7 @@ export function ResultsPanel({ summary, rate, onRateChange, onShare, copied, onB
         <Metric label={t.results.savings} value={`$${Math.round(summary.annualElectricityValueUsd).toLocaleString()}`} detail={t.results.savingsDetail} />
       </div>
       <p className="mt-3 text-[12px] leading-5 text-label-secondary">{t.results.note}</p>
+      {workspace}
 
       <div className="mt-4 rounded-[14px] bg-fill/60 p-3">
         <SliderField label={t.results.rate} value={rate} min={0.05} max={0.6} step={0.005} format={(value) => `$${value.toFixed(3)}`} onChange={onRateChange} />

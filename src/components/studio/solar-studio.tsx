@@ -7,6 +7,7 @@ import { PlaceSearch } from '@/components/place-search';
 import { RoofScene3D, type ViewCommand } from '@/components/roof-scene-3d';
 import { autoLayout, createLayoutContext, rackAzimuth, type LayoutResult } from '@/lib/design/auto-layout';
 import { estimateDesignEnergy } from '@/lib/design/energy';
+import { DRAFT_KEY, emptyComparisons, parseDraft, snapshot, type Comparisons, type Draft } from '@/lib/design/workspace';
 import { DEFAULT_PANEL_SIZE, DEFAULT_PANEL_WATTS, FLAT_ROOF_DEGREES, panelCenter } from '@/lib/design/geometry';
 import { panelClear } from '@/lib/design/clearance';
 import { collides, rowPanelIds, similarPanelIds, snapToArray } from '@/lib/design/panel-ops';
@@ -29,6 +30,7 @@ import { SelectPanel } from './select-panel';
 import { SelectionBar } from './selection-bar';
 import { StepNav } from './step-nav';
 import { SunBar } from './sun-bar';
+import { WorkspaceTools, type ComparisonMetrics } from './workspace-tools';
 import { cardClass, pillClass } from './ui';
 
 class HttpError extends Error {
@@ -58,6 +60,11 @@ export function SolarStudio() {
   const [mapError, setMapError] = useState<'forbidden' | 'failed' | null>(null);
   const [examplesOpen, setExamplesOpen] = useState(false);
   const [rate, setRate] = useState(DEFAULT_ELECTRICITY_RATE_USD_PER_KWH);
+  const [heatmap, setHeatmap] = useState(false);
+  const [comparisons, setComparisons] = useState<Comparisons>(emptyComparisons);
+  const [draftOffer, setDraftOffer] = useState<Draft | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  const [restoredModule, setRestoredModule] = useState<Pick<Draft, 'panelSize' | 'panelWatts'> | null>(null);
   const [copied, setCopied] = useState(false);
   const [dateIso, setDateIso] = useState('2026-06-21');
   const [minuteOfDay, setMinuteOfDay] = useState(12 * 60);
@@ -71,6 +78,7 @@ export function SolarStudio() {
   const [objective, setObjective] = useState<Objective>('max-total');
   const [optimizer, setOptimizer] = useState<(OptimizerState & { base?: LayoutParams })>({ status: 'idle' });
   const workerRef = useRef<Worker | null>(null);
+  const saveDraftRef = useRef<(() => void) | null>(null);
   const requestRef = useRef(0);
   const didLoadSharedRef = useRef(false);
   const searchParams = useSearchParams();
@@ -78,10 +86,15 @@ export function SolarStudio() {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
   // `buildingId` comes from a clicked footprint outline and skips the point lookup.
-  const loadBuilding = useCallback(async (location: LatLng, label: string, sharedDesign?: SharedDesign, buildingId?: string) => {
+  const loadBuilding = useCallback(async (location: LatLng, label: string, sharedDesign?: SharedDesign, buildingId?: string, draft?: Draft) => {
+    saveDraftRef.current?.();
+    saveDraftRef.current = null;
     const request = ++requestRef.current;
     dispatch({ type: 'select-building', location, label });
     setLayoutResult(null);
+    setComparisons(emptyComparisons());
+    setRestoredModule(null);
+    setSaveStatus('idle');
     workerRef.current?.terminate();
     workerRef.current = null;
     setOptimizer({ status: 'idle' });
@@ -112,12 +125,19 @@ export function SolarStudio() {
     }
     const insights = solar.status === 'fulfilled' && solar.value.solarPotential?.solarPanels?.length ? solar.value : null;
     const sameBuilding = sharedDesign && sharedDesign.buildingId === model.value.nycBuildingId;
+    if (draft && sameBuilding) {
+      setComparisons(draft.comparisons);
+      setRestoredModule({ panelSize: draft.panelSize, panelWatts: draft.panelWatts });
+      setRate(draft.rate);
+    }
+    setDraftOffer(null);
     dispatch({
       type: 'building-loaded',
       location: model.value.center,
       model: model.value,
       insights,
       panels: sameBuilding ? sharedDesign.panels : undefined,
+      params: draft && sameBuilding ? draft.params : undefined,
       notice: sharedDesign && !sameBuilding ? 'sharedModelChanged' : null,
     });
     // Surrounding buildings arrive separately so the model shows without waiting.
@@ -136,10 +156,19 @@ export function SolarStudio() {
     // Mark inside the timeout: Strict Mode cancels the first scheduled run.
     const timeout = window.setTimeout(() => {
       didLoadSharedRef.current = true;
-      void loadBuilding(shared.location, t.places.shared, shared);
+      void loadBuilding(shared.location, t.places.shared, shared, shared.buildingId);
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [loadBuilding, shared, t]);
+
+  useEffect(() => {
+    if (shared) return;
+    const timer = window.setTimeout(() => {
+      try { setDraftOffer(parseDraft(localStorage.getItem(DRAFT_KEY))); }
+      catch { setSaveStatus('error'); }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [shared]);
 
   // Start the simulation on today's New York date at noon, after hydration.
   useEffect(() => {
@@ -163,9 +192,9 @@ export function SolarStudio() {
 
   const { model, insights, location } = building;
   const potential = insights?.solarPotential ?? null;
-  const panelSize = useMemo(() => potential
+  const panelSize = useMemo(() => restoredModule?.panelSize ?? (potential
     ? { widthMeters: potential.panelWidthMeters, heightMeters: potential.panelHeightMeters }
-    : DEFAULT_PANEL_SIZE, [potential]);
+    : DEFAULT_PANEL_SIZE), [potential, restoredModule]);
   const minSpacing = panelSize.widthMeters * 0.9;
   // Shared by live updates, so roof analysis and sun visibility are reused.
   const layoutContext = useMemo(() => model ? createLayoutContext(model, building.neighbors) : null, [building.neighbors, model]);
@@ -179,13 +208,67 @@ export function SolarStudio() {
     if (!sun || !panels.length) return null;
     return panels.reduce((sum, panel) => sum + panelDirectLightFactor(panel.azimuthDegrees, panel.tiltDegrees, sun), 0) / panels.length;
   }, [panels, sun]);
-  const panelWatts = potential?.panelCapacityWatts ?? DEFAULT_PANEL_WATTS;
+  const panelWatts = restoredModule?.panelWatts ?? potential?.panelCapacityWatts ?? DEFAULT_PANEL_WATTS;
   // Energy follows the design a beat behind so drags stay smooth on big roofs.
   const energyPanels = useDeferredValue(panels);
   const energy = useMemo(
     () => (layoutContext ? estimateDesignEnergy(energyPanels, layoutContext, panelSize) : null),
     [energyPanels, layoutContext, panelSize],
   );
+  const energyPending = energyPanels !== panels || building.neighborStatus === 'loading' || layoutBusy;
+  const annualRatios = useMemo(() => {
+    if (!heatmap || !energy || !layoutContext) return undefined;
+    return new Map(energyPanels.map((panel, i) => [panel.id, layoutContext.idealPanelScore > 0 ? energy.yields[i] / layoutContext.idealPanelScore : 0]));
+  }, [energy, energyPanels, heatmap, layoutContext]);
+  const selectedPanel = panels.find(p => p.id === selectedIds.at(-1));
+  const selectedIndex = selectedPanel ? energyPanels.findIndex(p => p.id === selectedPanel.id) : -1;
+  const comparisonMetrics = useMemo(() => {
+    const measure = (slot: 'A' | 'B'): ComparisonMetrics | null => {
+      const saved = comparisons[slot];
+      if (!saved || !layoutContext) return null;
+      const calculated = estimateDesignEnergy(saved.panels, layoutContext, panelSize);
+      const capacity = saved.panels.length * panelWatts / 1000;
+      const annual = calculated.totalYield * panelWatts / 1000;
+      return { count: saved.panels.length, capacity, annual, specific: capacity ? annual / capacity : 0 };
+    };
+    return { A: measure('A'), B: measure('B') };
+  }, [comparisons, layoutContext, panelSize, panelWatts]);
+
+  // Keep the latest building's design in this browser. Nothing is saved until
+  // a layout exists, so merely opening a building never overwrites a draft;
+  // a layout cleared by hand is a design too and is saved.
+  useEffect(() => {
+    if (!model?.nycBuildingId || !location || layoutBusy || state.autoFill) return;
+    const buildingId = model.nycBuildingId;
+    const save = () => {
+      const draft: Draft = {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        buildingId,
+        label: building.label,
+        location,
+        ...snapshot(panels, params),
+        comparisons,
+        panelSize,
+        panelWatts,
+        rate,
+      };
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        setSaveStatus('saved');
+      } catch {
+        setSaveStatus('error');
+      }
+    };
+    const timer = window.setTimeout(save, 400);
+    // Switching buildings saves right away instead of waiting for the timer.
+    saveDraftRef.current = save;
+    window.addEventListener('pagehide', save);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('pagehide', save);
+    };
+  }, [building.label, comparisons, layoutBusy, location, model, panelSize, panelWatts, panels, params, rate, state.autoFill]);
   const summary = useMemo(() => summarizeDesign({
     panelCount: panels.length,
     panelWatts,
@@ -212,7 +295,7 @@ export function SolarStudio() {
   // the settings. Hand edits pause this; the panel then offers to apply.
   const untouched = isUntouchedLayout(state);
   // The first fill waits for the surrounding buildings so it is scored once, with their shade.
-  const fresh = state.generated === null && panels.length === 0 && state.past.length === 0 && building.neighborStatus !== 'loading';
+  const fresh = state.autoFill && panels.length === 0 && state.past.length === 0 && building.neighborStatus !== 'loading';
   const liveTarget = untouched && state.generated && (!sameParams(state.generated.params, params) || state.generated.shading !== shading);
   useEffect(() => {
     if (step !== 'design' || !model || layoutBusy || !(fresh || liveTarget)) return;
@@ -330,13 +413,27 @@ export function SolarStudio() {
   }, [location, model, panels]);
 
   const startOver = useCallback(() => {
+    saveDraftRef.current?.();
+    saveDraftRef.current = null;
     requestRef.current += 1;
     dispatch({ type: 'reset' });
     workerRef.current?.terminate();
     workerRef.current = null;
     setOptimizer({ status: 'idle' });
+    setComparisons(emptyComparisons());
     setPlaying(false);
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+  }, []);
+
+  const restoreDraft = useCallback(() => {
+    if (!draftOffer) return;
+    const { location: at, label, buildingId, panels: saved } = draftOffer;
+    void loadBuilding(at, label, { location: at, buildingId, panels: saved }, buildingId, draftOffer);
+  }, [draftOffer, loadBuilding]);
+
+  const discardDraft = useCallback(() => {
+    setDraftOffer(null);
+    try { localStorage.removeItem(DRAFT_KEY); } catch { setSaveStatus('error'); }
   }, []);
 
   if (!apiKey) {
@@ -354,6 +451,25 @@ export function SolarStudio() {
   const designReady = canDesign(state);
   const editing = step === 'design';
   const showScene = step !== 'select' && model;
+  const workspace = (
+    <WorkspaceTools
+      heatmap={heatmap}
+      onHeatmap={() => setHeatmap((value) => !value)}
+      selected={selectedPanel}
+      selectedKwh={energy && selectedIndex >= 0 ? (energy.yields[selectedIndex] * panelWatts) / 1000 : undefined}
+      busy={energyPending}
+      saveStatus={saveStatus}
+      comparisons={comparisons}
+      metrics={comparisonMetrics}
+      onSave={(slot) => setComparisons((current) => ({ ...current, [slot]: snapshot(panels, params) }))}
+      onApply={(slot) => {
+        const saved = comparisons[slot];
+        if (!saved) return;
+        dispatch({ type: 'restore-layout', ...snapshot(saved.panels, saved.params) });
+        setLayoutResult(null);
+      }}
+    />
+  );
 
   return (
     <main className="relative h-dvh min-h-[520px] overflow-hidden bg-[#e9edf2] text-label">
@@ -377,6 +493,7 @@ export function SolarStudio() {
           key={model.nycBuildingId}
           model={model}
           panels={panels}
+          annualRatios={energyPending ? undefined : annualRatios}
           panelSize={panelSize}
           selectedIds={selectedIds}
           sun={sun}
@@ -426,6 +543,19 @@ export function SolarStudio() {
           </div>
         </header>
 
+        {draftOffer && step === 'select' && (
+          <section className={`${cardClass} max-w-lg self-start p-3 text-[13px]`} aria-label={t.workspace.draftTitle}>
+            <p className="font-semibold">{t.workspace.draftTitle}</p>
+            <p className="mt-1 text-label-secondary">
+              {t.workspace.draftDetail(draftOffer.label, draftOffer.panels.length, new Date(draftOffer.savedAt).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US'))}
+            </p>
+            <div className="mt-2 flex gap-3">
+              <button type="button" disabled={building.status === 'loading'} className="font-semibold text-accent disabled:opacity-40" onClick={restoreDraft}>{t.workspace.restore}</button>
+              <button type="button" onClick={discardDraft}>{t.workspace.discard}</button>
+            </div>
+          </section>
+        )}
+
         <div className="flex min-h-0 flex-1 flex-col justify-between gap-3 md:flex-row md:items-start">
           {showScene ? (
             <SceneToolbar
@@ -453,6 +583,7 @@ export function SolarStudio() {
               neighborStatus={building.neighborStatus}
               neighborCount={building.neighbors?.buildingCount ?? 0}
               layoutResult={layoutResult}
+              workspace={workspace}
               onNext={() => dispatch({ type: 'set-step', step: 'results' })}
               optimizer={(
                 <OptimizeCard
@@ -469,6 +600,7 @@ export function SolarStudio() {
           ) : (
             <ResultsPanel
               summary={summary}
+              workspace={workspace}
               rate={rate}
               onRateChange={setRate}
               onShare={() => void copyShareLink()}

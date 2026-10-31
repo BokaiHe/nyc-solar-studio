@@ -4,6 +4,7 @@ import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Grid, OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { YIELD_COLORS, yieldBand } from '@/lib/design/workspace';
 import { createSurfaceGeometry, panelCenter, panelYaw, rackCenterHeight, roofTopHeight, type PanelSize } from '@/lib/design/geometry';
 import type { SelectMode, Tool } from '@/lib/design/state';
 import type { ConceptPanel, NeighborMesh, RoofModelData, SunSnapshot } from '@/lib/solar/types';
@@ -15,6 +16,7 @@ export type ViewCommand = { kind: 'reset' | 'top'; nonce: number };
 type RoofScene3DProps = {
   model: RoofModelData;
   panels: ConceptPanel[];
+  annualRatios?: ReadonlyMap<number, number>;
   panelSize: PanelSize;
   selectedIds: number[];
   sun: SunSnapshot | null;
@@ -235,6 +237,13 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
   const roofTop = useMemo(() => roofTopHeight(model.positions), [model.positions]);
   const glint = sun?.daylight ? Math.max(0, Math.sin(THREE.MathUtils.degToRad(sun.altitudeDegrees))) : 0;
   const materials = usePanelMaterials(glint);
+  // Shared, unlit bands: annual yield colors do not change with the sun slider.
+  const yieldMaterials = useMemo(() => YIELD_COLORS.map(color => {
+    const side = new THREE.MeshBasicMaterial({ color: '#64748b' });
+    const top = new THREE.MeshBasicMaterial({ color });
+    return [side, side, top, side, side, side];
+  }), []);
+  useEffect(() => () => { for (const set of yieldMaterials) for (const material of new Set(set)) material.dispose(); }, [yieldMaterials]);
   const altitude = sun ? THREE.MathUtils.degToRad(Math.max(-5, sun.altitudeDegrees)) : Math.PI / 4;
   const azimuth = sun ? THREE.MathUtils.degToRad(sun.azimuthDegrees) : Math.PI;
   // With neighbors shown, the light's shadow box widens so their shadows reach the roof.
@@ -472,7 +481,9 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
           key={panel.id}
           panel={panel}
           geometry={panel.landscape ? boxes.landscape : boxes.portrait}
-          material={materials[panel.landscape ? 'landscape' : 'portrait'][lookFor(panel)]}
+          material={props.annualRatios?.has(panel.id) && lookFor(panel) === 'normal'
+            ? yieldMaterials[yieldBand(props.annualRatios.get(panel.id)!)]
+            : materials[panel.landscape ? 'landscape' : 'portrait'][lookFor(panel)]}
           onPointerDown={onPanelDown}
           onPointerEnter={onPanelEnter}
           onPointerLeave={onPanelLeave}
