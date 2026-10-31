@@ -12,6 +12,7 @@ All notable changes will be documented in this file.
 
 ### Changed
 
+- Keep big roofs responsive: occlusion rays use a bounding volume hierarchy, auto layout runs in a Web Worker that keeps the roof between requests, energy reuses each panel's yield and finds the row in front on a grid (re-estimated once an edit pauses), and panels draw as a few instanced meshes with fast picking. On an 11,000-panel roof an edit drops from 4.6 s to about 0.1 s.
 - Restructure the app into three steps — select building, 3D design, results — with one step navigation and a light card UI.
 - Remove the 2D satellite panel designer; the map now only picks buildings, and the 3D LoD2 roof is the single design surface.
 - Load the 3D model without waiting for Google Solar data; Google data is optional context for panel size and energy, and is used to snap street clicks to the nearest building.

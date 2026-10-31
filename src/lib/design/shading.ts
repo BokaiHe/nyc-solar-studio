@@ -66,68 +66,118 @@ export function panelNormal(azimuthDegrees: number, tiltDegrees: number): Vec3 {
   return [Math.sin(azimuth) * Math.sin(tilt), Math.cos(tilt), -Math.cos(azimuth) * Math.sin(tilt)];
 }
 
-// Triangles grouped by building, each group with a bounding box, for fast
-// "any hit" ray queries: a ray that misses a group's box skips its triangles.
-export type OccluderMesh = { positions: number[]; indices: number[]; groupStarts?: number[] };
+export type OccluderMesh = { positions: number[]; indices: number[] };
 
+// Triangles per BVH leaf.
+const LEAF_SIZE = 8;
+
+// All occluding triangles in a bounding volume hierarchy, for fast "any hit"
+// ray queries: a ray only tests the triangles in boxes it passes through.
 export class Occluders {
   private readonly data: Float32Array;
-  private readonly groups: Array<{ from: number; to: number; min: Vec3; max: Vec3 }> = [];
+  // Per node: min xyz, max xyz. Leaves list triangles `first` to `first + count`
+  // of `order`; inner nodes have count 0 and children `first` and `first + 1`.
+  private readonly bounds: Float32Array;
+  private readonly first: Uint32Array;
+  private readonly count: Uint32Array;
+  private readonly order: Uint32Array;
+  private readonly stack: Uint32Array;
 
   constructor(meshes: OccluderMesh[]) {
     const triangles: number[] = [];
-    for (const { positions, indices, groupStarts = [0] } of meshes) {
-      const starts = [...groupStarts, indices.length];
-      for (let group = 0; group < starts.length - 1; group += 1) {
-        const from = triangles.length / 9;
-        const min: Vec3 = [Infinity, Infinity, Infinity];
-        const max: Vec3 = [-Infinity, -Infinity, -Infinity];
-        for (let t = starts[group]; t < starts[group + 1]; t += 1) {
-          const v = indices[t] * 3;
-          for (let axis = 0; axis < 3; axis += 1) {
-            const value = positions[v + axis];
-            triangles.push(value);
-            if (value < min[axis]) min[axis] = value;
-            if (value > max[axis]) max[axis] = value;
-          }
-        }
-        const to = triangles.length / 9;
-        if (to > from) this.groups.push({ from, to, min, max });
-      }
+    for (const { positions, indices } of meshes) {
+      for (const index of indices) triangles.push(positions[index * 3], positions[index * 3 + 1], positions[index * 3 + 2]);
     }
     this.data = Float32Array.from(triangles);
+    const total = this.data.length / 9;
+    const centers = new Float32Array(total * 3);
+    for (let t = 0; t < total; t += 1) {
+      for (let axis = 0; axis < 3; axis += 1) {
+        const i = t * 9 + axis;
+        centers[t * 3 + axis] = (this.data[i] + this.data[i + 3] + this.data[i + 6]) / 3;
+      }
+    }
+    this.order = Uint32Array.from({ length: total }, (_, t) => t);
+    // Median splits leave at least LEAF_SIZE / 2 triangles per leaf.
+    const maxNodes = 2 * (Math.ceil((2 * total) / LEAF_SIZE) + 1);
+    this.bounds = new Float32Array(maxNodes * 6);
+    this.first = new Uint32Array(maxNodes);
+    this.count = new Uint32Array(maxNodes);
+    let nodes = 1;
+    let depth = 0;
+    // Split each node at the median of its longest axis.
+    const build = (node: number, from: number, to: number, level: number) => {
+      depth = Math.max(depth, level);
+      const box = this.bounds.subarray(node * 6, node * 6 + 6);
+      box.set([Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
+      for (let k = from; k < to; k += 1) {
+        const i = this.order[k] * 9;
+        for (let corner = 0; corner < 9; corner += 3) {
+          for (let axis = 0; axis < 3; axis += 1) {
+            const value = this.data[i + corner + axis];
+            if (value < box[axis]) box[axis] = value;
+            if (value > box[axis + 3]) box[axis + 3] = value;
+          }
+        }
+      }
+      if (to - from <= LEAF_SIZE) {
+        this.first[node] = from;
+        this.count[node] = to - from;
+        return;
+      }
+      const extent = [box[3] - box[0], box[4] - box[1], box[5] - box[2]];
+      const axis = extent[0] >= extent[1] && extent[0] >= extent[2] ? 0 : extent[1] >= extent[2] ? 1 : 2;
+      const slice = Array.from(this.order.subarray(from, to)).sort((a, b) => centers[a * 3 + axis] - centers[b * 3 + axis]);
+      this.order.set(slice, from);
+      const middle = (from + to) >> 1;
+      const left = nodes;
+      nodes += 2;
+      this.first[node] = left;
+      this.count[node] = 0;
+      build(left, from, middle, level + 1);
+      build(left + 1, middle, to, level + 1);
+    };
+    if (total) build(0, 0, total, 0);
+    else this.bounds.set([Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
+    this.stack = new Uint32Array(depth * 2 + 2);
   }
 
-  // Slab test: does the ray from `origin` along `direction` enter the box?
-  private static hitsBox(origin: Vec3, direction: Vec3, min: Vec3, max: Vec3, maxDistance: number): boolean {
-    let near = 0;
-    let far = maxDistance;
-    for (let axis = 0; axis < 3; axis += 1) {
-      const d = direction[axis];
-      if (Math.abs(d) < 1e-12) {
-        if (origin[axis] < min[axis] || origin[axis] > max[axis]) return false;
-        continue;
-      }
-      let t1 = (min[axis] - origin[axis]) / d;
-      let t2 = (max[axis] - origin[axis]) / d;
-      if (t1 > t2) [t1, t2] = [t2, t1];
-      near = Math.max(near, t1);
-      far = Math.min(far, t2);
-      if (near > far) return false;
-    }
-    return true;
+  // Slab test: does the ray from `origin` (with inverse direction) enter node's box within `maxDistance`?
+  private hitsBox(node: number, ox: number, oy: number, oz: number, ix: number, iy: number, iz: number, maxDistance: number): boolean {
+    const b = this.bounds;
+    const o = node * 6;
+    let t1 = (b[o] - ox) * ix, t2 = (b[o + 3] - ox) * ix;
+    let near = Math.min(t1, t2), far = Math.max(t1, t2);
+    t1 = (b[o + 1] - oy) * iy; t2 = (b[o + 4] - oy) * iy;
+    near = Math.max(near, Math.min(t1, t2)); far = Math.min(far, Math.max(t1, t2));
+    t1 = (b[o + 2] - oz) * iz; t2 = (b[o + 5] - oz) * iz;
+    near = Math.max(near, Math.min(t1, t2)); far = Math.min(far, Math.max(t1, t2));
+    // NaN from a zero direction on a slab edge counts as a hit; the triangle test decides.
+    return !(far < Math.max(near, 0) || near > maxDistance);
   }
 
   // Möller–Trumbore, returning on the first hit beyond the start offset and,
   // for a unit `direction`, within `maxDistance` meters.
   blocked(origin: Vec3, direction: Vec3, maxDistance = Infinity): boolean {
+    if (!this.order.length) return false;
     const [ox, oy, oz] = origin;
     const [dx, dy, dz] = direction;
+    const ix = 1 / dx, iy = 1 / dy, iz = 1 / dz;
     const d = this.data;
-    for (const group of this.groups) {
-      if (!Occluders.hitsBox(origin, direction, group.min, group.max, maxDistance)) continue;
-      for (let t = group.from; t < group.to; t += 1) {
-        const i = t * 9;
+    const stack = this.stack;
+    let top = 0;
+    stack[top++] = 0;
+    while (top) {
+      const node = stack[--top];
+      if (!this.hitsBox(node, ox, oy, oz, ix, iy, iz, maxDistance)) continue;
+      const count = this.count[node];
+      if (!count) {
+        stack[top++] = this.first[node];
+        stack[top++] = this.first[node] + 1;
+        continue;
+      }
+      for (let k = this.first[node]; k < this.first[node] + count; k += 1) {
+        const i = this.order[k] * 9;
         // Skip triangles entirely below the ray start when the ray points up.
         if (dy > 0 && d[i + 1] < oy && d[i + 4] < oy && d[i + 7] < oy) continue;
         const e1x = d[i + 3] - d[i], e1y = d[i + 4] - d[i + 1], e1z = d[i + 5] - d[i + 2];
@@ -179,6 +229,9 @@ export type Visibility = {
 // Visibility depends only on position, so every layout tried for a roof can share it.
 export class VisibilityCache {
   private readonly cache = new Map<string, Visibility>();
+  // Entries computed since the last takeComputed(), to share with another
+  // cache for the same roof (the layout worker's with the main thread's).
+  private computed: Array<[string, Visibility]> = [];
 
   constructor(readonly samples: SunSample[], private readonly occluders: Occluders, private readonly cellMeters = 1.5) {}
 
@@ -192,8 +245,19 @@ export class VisibilityCache {
         sky: SKY_DIRECTIONS.reduce((sum, { direction, weight }) => sum + (this.occluders.blocked(origin, direction) ? 0 : weight), 0),
       };
       this.cache.set(key, visibility);
+      this.computed.push([key, visibility]);
     }
     return visibility;
+  }
+
+  takeComputed(): Array<[string, Visibility]> {
+    const computed = this.computed;
+    this.computed = [];
+    return computed;
+  }
+
+  seed(entries: Array<[string, Visibility]>) {
+    for (const [key, visibility] of entries) if (!this.cache.has(key)) this.cache.set(key, visibility);
   }
 }
 

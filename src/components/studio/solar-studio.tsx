@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Map2DCanvas, type FootprintInfo } from '@/components/map-2d-canvas';
 import { PlaceSearch } from '@/components/place-search';
 import { RoofScene3D, type ViewCommand } from '@/components/roof-scene-3d';
-import { autoLayout, createLayoutContext, rackAzimuth, type LayoutResult } from '@/lib/design/auto-layout';
+import { createLayoutContext, rackAzimuth, type LayoutContext, type LayoutResult } from '@/lib/design/auto-layout';
 import { estimateDesignEnergy } from '@/lib/design/energy';
 import { DRAFT_KEY, emptyComparisons, parseDraft, snapshot, type Comparisons, type Draft } from '@/lib/design/workspace';
 import { DEFAULT_PANEL_SIZE, DEFAULT_PANEL_WATTS, FLAT_ROOF_DEGREES, panelCenter } from '@/lib/design/geometry';
@@ -14,6 +14,7 @@ import { collides, rowPanelIds, similarPanelIds, snapToArray } from '@/lib/desig
 import { facingAzimuth, type Vec3 } from '@/lib/design/roof-faces';
 import { encodeSharedDesign, parseSharedDesign, type SharedDesign } from '@/lib/design/share';
 import type { LayoutOption, Objective } from '@/lib/design/optimizer';
+import type { LayoutMessage, LayoutRequest } from '@/lib/design/layout.worker';
 import type { OptimizerMessage, OptimizerRequest } from '@/lib/design/optimizer.worker';
 import { insideStudyArea, STUDY_AREA_BUILDINGS } from '@/lib/nyc/study-area';
 import { canDesign, initialStudioState, isUntouchedLayout, sameParams, shadingKey, studioReducer, type LayoutParams, type Tool } from '@/lib/design/state';
@@ -52,6 +53,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
 const TOOL_KEYS: Record<string, Tool> = { v: 'select', a: 'add', e: 'erase' };
 // Debounce for live regeneration while settings are edited.
 const LIVE_LAYOUT_DELAY_MS = 150;
+// Pause in editing after which annual energy is re-estimated.
+const ENERGY_SETTLE_MS = 150;
 
 export function SolarStudio() {
   const { t, lang, setLang } = useI18n();
@@ -78,12 +81,25 @@ export function SolarStudio() {
   const [objective, setObjective] = useState<Objective>('max-total');
   const [optimizer, setOptimizer] = useState<(OptimizerState & { base?: LayoutParams })>({ status: 'idle' });
   const workerRef = useRef<Worker | null>(null);
+  const layoutWorkerRef = useRef<Worker | null>(null);
+  const layoutRequestRef = useRef(0);
+  const layoutHandlerRef = useRef<((message: LayoutMessage) => void) | null>(null);
+  // The context whose roof the layout worker holds.
+  const layoutSceneRef = useRef<LayoutContext | null>(null);
   const saveDraftRef = useRef<(() => void) | null>(null);
   const requestRef = useRef(0);
   const didLoadSharedRef = useRef(false);
   const searchParams = useSearchParams();
   const shared = useMemo(() => parseSharedDesign(searchParams.toString()), [searchParams]);
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
+
+  // Drops any running layout; the next request starts a fresh worker.
+  const stopLayoutWorker = useCallback(() => {
+    layoutWorkerRef.current?.terminate();
+    layoutWorkerRef.current = null;
+    layoutSceneRef.current = null;
+    layoutRequestRef.current += 1;
+  }, []);
 
   // `buildingId` comes from a clicked footprint outline and skips the point lookup.
   const loadBuilding = useCallback(async (location: LatLng, label: string, sharedDesign?: SharedDesign, buildingId?: string, draft?: Draft) => {
@@ -97,6 +113,8 @@ export function SolarStudio() {
     setSaveStatus('idle');
     workerRef.current?.terminate();
     workerRef.current = null;
+    stopLayoutWorker();
+    setLayoutBusy(false);
     setOptimizer({ status: 'idle' });
     setExamplesOpen(false);
     if (!sharedDesign && window.location.pathname !== '/') window.history.replaceState(null, '', '/');
@@ -149,7 +167,7 @@ export function SolarStudio() {
     } catch {
       if (request === requestRef.current) dispatch({ type: 'neighbors-failed', buildingId: modelId });
     }
-  }, []);
+  }, [stopLayoutWorker]);
 
   useEffect(() => {
     if (!shared || didLoadSharedRef.current) return;
@@ -209,8 +227,14 @@ export function SolarStudio() {
     return panels.reduce((sum, panel) => sum + panelDirectLightFactor(panel.azimuthDegrees, panel.tiltDegrees, sun), 0) / panels.length;
   }, [panels, sun]);
   const panelWatts = restoredModule?.panelWatts ?? potential?.panelCapacityWatts ?? DEFAULT_PANEL_WATTS;
-  // Energy follows the design a beat behind so drags stay smooth on big roofs.
-  const energyPanels = useDeferredValue(panels);
+  // Energy follows the design once edits pause, so dragging panels on a big
+  // roof does not re-estimate every panel on each pointer move.
+  const [energyPanels, setEnergyPanels] = useState(panels);
+  useEffect(() => {
+    if (energyPanels === panels) return;
+    const timer = window.setTimeout(() => setEnergyPanels(panels), ENERGY_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [energyPanels, panels]);
   const energy = useMemo(
     () => (layoutContext ? estimateDesignEnergy(energyPanels, layoutContext, panelSize) : null),
     [energyPanels, layoutContext, panelSize],
@@ -278,18 +302,38 @@ export function SolarStudio() {
     electricityRateUsdPerKwh: rate,
   }), [energy, panelWatts, panels.length, potential, rate]);
 
+  // Auto layout runs in a worker that keeps the roof between requests; the
+  // roof is sent again only when the main thread's context changes.
   const generate = useCallback((record: boolean) => {
     if (!model || !layoutContext) return;
-    setLayoutBusy(true);
+    let worker = layoutWorkerRef.current;
+    if (!worker) {
+      const created = new Worker(new URL('../../lib/design/layout.worker.ts', import.meta.url), { type: 'module' });
+      created.onmessage = (event: MessageEvent<LayoutMessage>) => layoutHandlerRef.current?.(event.data);
+      created.onerror = () => layoutHandlerRef.current?.({ id: layoutRequestRef.current, type: 'error' });
+      layoutWorkerRef.current = created;
+      worker = created;
+    }
+    const id = ++layoutRequestRef.current;
+    const scene = layoutSceneRef.current === layoutContext ? undefined : { model, neighbors: building.neighbors };
+    layoutSceneRef.current = layoutContext;
     const layoutParams = params;
-    // Yield a frame so the busy state paints before the synchronous layout runs.
-    window.setTimeout(() => {
-      const { panels: generated, ...result } = autoLayout(model, layoutParams, panelSize, layoutContext);
-      dispatch({ type: 'generated', panels: generated, params: layoutParams, shading, record });
-      setLayoutResult(result);
+    setLayoutBusy(true);
+    layoutHandlerRef.current = (message) => {
+      // A newer request supersedes this one.
+      if (message.id !== layoutRequestRef.current) return;
+      if (message.type === 'done') {
+        layoutContext.visibility.seed(message.visibility);
+        const { panels: generated, ...result } = message.result;
+        dispatch({ type: 'generated', panels: generated, params: layoutParams, shading, record });
+        setLayoutResult(result);
+      } else {
+        stopLayoutWorker();
+      }
       setLayoutBusy(false);
-    }, 30);
-  }, [layoutContext, model, panelSize, params, shading]);
+    };
+    worker.postMessage({ id, scene, params: layoutParams, panel: panelSize } satisfies LayoutRequest);
+  }, [building.neighbors, layoutContext, model, panelSize, params, shading, stopLayoutWorker]);
 
   // Fill the roof on first entry, and keep an untouched layout in step with
   // the settings. Hand edits pause this; the panel then offers to apply.
@@ -367,7 +411,10 @@ export function SolarStudio() {
     onRemovePanels: (ids: number[]) => dispatch({ type: 'remove-panels', ids, record: false }),
   }), [minSpacing]);
 
-  useEffect(() => () => workerRef.current?.terminate(), []);
+  useEffect(() => () => {
+    workerRef.current?.terminate();
+    stopLayoutWorker();
+  }, [stopLayoutWorker]);
 
   const runOptimizer = useCallback(() => {
     if (!model) return;
@@ -419,11 +466,13 @@ export function SolarStudio() {
     dispatch({ type: 'reset' });
     workerRef.current?.terminate();
     workerRef.current = null;
+    stopLayoutWorker();
+    setLayoutBusy(false);
     setOptimizer({ status: 'idle' });
     setComparisons(emptyComparisons());
     setPlaying(false);
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
-  }, []);
+  }, [stopLayoutWorker]);
 
   const restoreDraft = useCallback(() => {
     if (!draftOffer) return;

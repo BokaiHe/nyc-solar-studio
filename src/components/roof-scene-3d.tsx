@@ -124,60 +124,150 @@ function usePanelMaterials(glint: number) {
 const panelRotation = (panel: Pick<ConceptPanel, 'azimuthDegrees' | 'tiltDegrees'>) =>
   new THREE.Euler(THREE.MathUtils.degToRad(panel.tiltDegrees), panelYaw(panel.azimuthDegrees), 0, 'YXZ');
 
-const PanelMesh = memo(function PanelMesh({ panel, geometry, material, onPointerDown, onPointerEnter, onPointerLeave }: {
-  panel: ConceptPanel;
-  geometry: THREE.BufferGeometry;
-  material: THREE.Material[];
+// Panels are immutable, so each one's transform is composed once.
+const panelMatrices = new WeakMap<ConceptPanel, THREE.Matrix4>();
+const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
+function panelMatrix(panel: ConceptPanel): THREE.Matrix4 {
+  let matrix = panelMatrices.get(panel);
+  if (!matrix) {
+    matrix = new THREE.Matrix4().compose(
+      new THREE.Vector3(...panel.position),
+      new THREE.Quaternion().setFromEuler(panelRotation(panel)),
+      UNIT_SCALE,
+    );
+    panelMatrices.set(panel, matrix);
+  }
+  return matrix;
+}
+
+const panelInverses = new WeakMap<ConceptPanel, THREE.Matrix4>();
+function panelInverse(panel: ConceptPanel): THREE.Matrix4 {
+  let inverse = panelInverses.get(panel);
+  if (!inverse) {
+    inverse = panelMatrix(panel).clone().invert();
+    panelInverses.set(panel, inverse);
+  }
+  return inverse;
+}
+
+// Picking for a batch of panels. Three's instanced raycast transforms the box
+// of every instance, which takes hundreds of milliseconds per pointer move on
+// a roof with ten thousand panels; a bounding-sphere test on the raw panel
+// centers first leaves only the few panels under the pointer to test exactly.
+const localRay = new THREE.Ray();
+const localHit = new THREE.Vector3();
+function raycastPanels(mesh: THREE.InstancedMesh, panels: ConceptPanel[], raycaster: THREE.Raycaster, intersects: THREE.Intersection[]) {
+  const { geometry } = mesh;
+  if (!geometry.boundingBox) geometry.computeBoundingBox();
+  const box = geometry.boundingBox!;
+  const radius = box.max.distanceTo(box.min) / 2;
+  const { origin, direction } = raycaster.ray;
+  panels.forEach((panel, instanceId) => {
+    const [x, y, z] = panel.position;
+    const vx = x - origin.x, vy = y - origin.y, vz = z - origin.z;
+    const along = vx * direction.x + vy * direction.y + vz * direction.z;
+    if (along < -radius || vx * vx + vy * vy + vz * vz - along * along > radius * radius) return;
+    localRay.copy(raycaster.ray).applyMatrix4(panelInverse(panel));
+    if (!localRay.intersectBox(box, localHit)) return;
+    const point = localHit.clone().applyMatrix4(panelMatrix(panel));
+    const distance = origin.distanceTo(point);
+    if (distance < raycaster.near || distance > raycaster.far) return;
+    intersects.push({ distance, point, object: mesh, instanceId });
+  });
+}
+
+// Panels that share a box shape and a material set, drawn as one instanced mesh.
+type PanelBatch = { key: string; geometry: THREE.BufferGeometry; material: THREE.Material[]; panels: ConceptPanel[] };
+
+const PanelBatchMesh = memo(function PanelBatchMesh({ batch, onPointerDown, onPointerOver, onPointerOut }: {
+  batch: PanelBatch;
   onPointerDown: (event: ThreeEvent<PointerEvent>, panel: ConceptPanel) => void;
-  onPointerEnter: (event: ThreeEvent<PointerEvent>, panel: ConceptPanel) => void;
-  onPointerLeave: (panel: ConceptPanel) => void;
+  onPointerOver: (event: ThreeEvent<PointerEvent>, panel: ConceptPanel) => void;
+  onPointerOut: (panels: ConceptPanel[]) => void;
 }) {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const { panels } = batch;
+  // Capacity grows in steps; an instanced mesh cannot resize, so it remounts.
+  const capacity = Math.ceil(panels.length / 256) * 256;
+  // The panels this mesh last uploaded: dragging a few panels rebuilds every
+  // batch's list, but only batches whose panels changed are re-uploaded.
+  const uploadedRef = useRef<{ mesh: THREE.InstancedMesh; panels: ConceptPanel[] } | null>(null);
+  useLayoutEffect(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    const uploaded = uploadedRef.current;
+    if (uploaded?.mesh === mesh && uploaded.panels.length === panels.length
+      && uploaded.panels.every((panel, index) => panel === panels[index])) return;
+    uploadedRef.current = { mesh, panels };
+    panels.forEach((panel, index) => mesh.setMatrixAt(index, panelMatrix(panel)));
+    mesh.count = panels.length;
+    mesh.instanceMatrix.needsUpdate = true;
+    // Picking culls by the bounding sphere, which must follow moved panels.
+    mesh.computeBoundingSphere();
+  }, [capacity, panels]);
+  const panelAt = (event: ThreeEvent<PointerEvent>) => (event.instanceId === undefined ? undefined : panels[event.instanceId]);
+  if (!panels.length) return null;
   return (
-    <mesh
-      geometry={geometry}
-      material={material}
-      position={panel.position}
-      rotation={panelRotation(panel)}
+    <instancedMesh
+      key={capacity}
+      ref={ref}
+      args={[batch.geometry, batch.material, capacity]}
       castShadow
       receiveShadow
-      onPointerDown={(event) => onPointerDown(event, panel)}
-      onPointerEnter={(event) => onPointerEnter(event, panel)}
-      onPointerLeave={() => onPointerLeave(panel)}
+      raycast={function (this: THREE.InstancedMesh, raycaster: THREE.Raycaster, intersects: THREE.Intersection[]) {
+        raycastPanels(this, panels, raycaster, intersects);
+      }}
+      onPointerDown={(event) => {
+        const panel = panelAt(event);
+        if (panel) onPointerDown(event, panel);
+      }}
+      onPointerMove={(event) => {
+        const panel = panelAt(event);
+        if (panel) onPointerOver(event, panel);
+      }}
+      onPointerOut={() => onPointerOut(panels)}
     />
   );
 });
 
+// Post transforms of one rack panel, cached per panel and module size.
+const postMatrices = new WeakMap<ConceptPanel, { size: PanelSize; matrices: THREE.Matrix4[] }>();
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
+function rackPostMatrices(panel: ConceptPanel, panelSize: PanelSize): THREE.Matrix4[] {
+  const cached = postMatrices.get(panel);
+  if (cached?.size === panelSize) return cached.matrices;
+  const matrices: THREE.Matrix4[] = [];
+  const width = panel.landscape ? panelSize.heightMeters : panelSize.widthMeters;
+  const length = panel.landscape ? panelSize.widthMeters : panelSize.heightMeters;
+  const tilt = THREE.MathUtils.degToRad(panel.tiltDegrees);
+  const roofBelow = rackCenterHeight(panel.tiltDegrees, length);
+  const yaw = new THREE.Quaternion().setFromAxisAngle(UP_AXIS, panelYaw(panel.azimuthDegrees));
+  for (const fraction of [-0.35, 0.35]) {
+    // The down-slope edge faces +z in panel space.
+    const z = fraction * length;
+    const top = -z * Math.sin(tilt) - PANEL_THICKNESS / 2;
+    const height = top + roofBelow;
+    if (height < 0.03) continue;
+    for (const side of [-0.4, 0.4]) {
+      const offset = new THREE.Vector3(side * width, top - height / 2, z).applyQuaternion(yaw);
+      matrices.push(new THREE.Matrix4().compose(
+        new THREE.Vector3(panel.position[0] + offset.x, panel.position[1] + offset.y, panel.position[2] + offset.z),
+        yaw,
+        new THREE.Vector3(1, height, 1),
+      ));
+    }
+  }
+  postMatrices.set(panel, { size: panelSize, matrices });
+  return matrices;
+}
+
 // All rack posts as one instanced mesh: hundreds of panels stay cheap to draw.
 function RackPosts({ panels, panelSize, material }: { panels: ConceptPanel[]; panelSize: PanelSize; material: THREE.Material }) {
   const ref = useRef<THREE.InstancedMesh>(null);
-  const posts = useMemo(() => {
-    const result: THREE.Matrix4[] = [];
-    const yaw = new THREE.Quaternion();
-    for (const panel of panels) {
-      if (panel.mount !== 'rack') continue;
-      const width = panel.landscape ? panelSize.heightMeters : panelSize.widthMeters;
-      const length = panel.landscape ? panelSize.widthMeters : panelSize.heightMeters;
-      const tilt = THREE.MathUtils.degToRad(panel.tiltDegrees);
-      const roofBelow = rackCenterHeight(panel.tiltDegrees, length);
-      yaw.setFromAxisAngle(new THREE.Vector3(0, 1, 0), panelYaw(panel.azimuthDegrees));
-      for (const fraction of [-0.35, 0.35]) {
-        // The down-slope edge faces +z in panel space.
-        const z = fraction * length;
-        const top = -z * Math.sin(tilt) - PANEL_THICKNESS / 2;
-        const height = top + roofBelow;
-        if (height < 0.03) continue;
-        for (const side of [-0.4, 0.4]) {
-          const offset = new THREE.Vector3(side * width, top - height / 2, z).applyQuaternion(yaw);
-          result.push(new THREE.Matrix4().compose(
-            new THREE.Vector3(panel.position[0] + offset.x, panel.position[1] + offset.y, panel.position[2] + offset.z),
-            yaw,
-            new THREE.Vector3(1, height, 1),
-          ));
-        }
-      }
-    }
-    return result;
-  }, [panelSize, panels]);
+  const posts = useMemo(
+    () => panels.flatMap((panel) => (panel.mount === 'rack' ? rackPostMatrices(panel, panelSize) : [])),
+    [panelSize, panels],
+  );
   const geometry = useMemo(() => new THREE.BoxGeometry(0.05, 1, 0.05), []);
   useLayoutEffect(() => {
     const mesh = ref.current;
@@ -391,9 +481,14 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
     };
   }, [editable, onCheckpoint, onRemovePanels, onSelect, panels, pointerOnPlane, selected, setControlsEnabled, tool]);
 
-  const onPanelEnter = useCallback((event: ThreeEvent<PointerEvent>, panel: ConceptPanel) => {
+  // Moving across one instanced mesh reports every pointer move, so a panel
+  // counts as entered only when the hovered panel changes.
+  const hoveredRef = useRef<number | null>(null);
+  const onPanelOver = useCallback((event: ThreeEvent<PointerEvent>, panel: ConceptPanel) => {
     if (!editable || tool === 'add') return;
     event.stopPropagation();
+    if (hoveredRef.current === panel.id) return;
+    hoveredRef.current = panel.id;
     setHoveredId(panel.id);
     const gesture = gestureRef.current;
     if (gesture?.kind === 'erase') {
@@ -405,8 +500,13 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
     }
   }, [editable, onCheckpoint, onRemovePanels, tool]);
 
-  const onPanelLeave = useCallback((panel: ConceptPanel) => {
-    setHoveredId((current) => (current === panel.id ? null : current));
+  // Leaving a batch clears the hover only if the hovered panel is in it; a
+  // hovered panel itself moves to the hover batch.
+  const onPanelOut = useCallback((batchPanels: ConceptPanel[]) => {
+    const current = hoveredRef.current;
+    if (current === null || !batchPanels.some((panel) => panel.id === current)) return;
+    hoveredRef.current = null;
+    setHoveredId(null);
   }, []);
 
   const onRoofDown = (event: ThreeEvent<PointerEvent>) => {
@@ -444,13 +544,33 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
           : hovered !== null ? 'move' : 'default');
   }, [editable, hovered, setCursor, tool]);
 
-  const lookFor = (panel: ConceptPanel): PanelLook => {
-    if (!editable) return 'normal';
-    if (hovered === panel.id && tool === 'erase') return 'erase';
-    if (selected.has(panel.id)) return 'selected';
-    if (hovered === panel.id) return 'hover';
-    return 'normal';
-  };
+  // Group panels by box shape and look (selection, hover, yield band) into
+  // a handful of instanced meshes, so large roofs draw in a few calls.
+  const annualRatios = props.annualRatios;
+  const batches = useMemo(() => {
+    const lookFor = (panel: ConceptPanel): PanelLook => {
+      if (!editable) return 'normal';
+      if (hovered === panel.id && tool === 'erase') return 'erase';
+      if (selected.has(panel.id)) return 'selected';
+      if (hovered === panel.id) return 'hover';
+      return 'normal';
+    };
+    const byKey = new Map<string, PanelBatch>();
+    for (const panel of panels) {
+      const shape = panel.landscape ? 'landscape' : 'portrait';
+      const look = lookFor(panel);
+      const ratio = look === 'normal' ? annualRatios?.get(panel.id) : undefined;
+      const band = ratio === undefined ? null : yieldBand(ratio);
+      const key = `${shape}:${band === null ? look : `yield${band}`}`;
+      let batch = byKey.get(key);
+      if (!batch) {
+        batch = { key, geometry: boxes[shape], material: band === null ? materials[shape][look] : yieldMaterials[band], panels: [] };
+        byKey.set(key, batch);
+      }
+      batch.panels.push(panel);
+    }
+    return [...byKey.values()];
+  }, [annualRatios, boxes, editable, hovered, materials, panels, selected, tool, yieldMaterials]);
 
   // The ghost only shows while placing; stale previews from another tool are ignored.
   const preview = editable && tool === 'add' ? ghost : null;
@@ -476,18 +596,8 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
           <meshStandardMaterial color="#c3cad4" roughness={0.95} side={THREE.DoubleSide} transparent opacity={0.38} depthWrite={false} />
         </mesh>
       )}
-      {panels.map((panel) => (
-        <PanelMesh
-          key={panel.id}
-          panel={panel}
-          geometry={panel.landscape ? boxes.landscape : boxes.portrait}
-          material={props.annualRatios?.has(panel.id) && lookFor(panel) === 'normal'
-            ? yieldMaterials[yieldBand(props.annualRatios.get(panel.id)!)]
-            : materials[panel.landscape ? 'landscape' : 'portrait'][lookFor(panel)]}
-          onPointerDown={onPanelDown}
-          onPointerEnter={onPanelEnter}
-          onPointerLeave={onPanelLeave}
-        />
+      {batches.map((batch) => (
+        <PanelBatchMesh key={batch.key} batch={batch} onPointerDown={onPanelDown} onPointerOver={onPanelOver} onPointerOut={onPanelOut} />
       ))}
       <RackPosts panels={panels} panelSize={panelSize} material={materials.post} />
       {preview && (

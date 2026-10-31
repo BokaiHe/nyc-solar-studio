@@ -29,6 +29,9 @@ export type LayoutContext = {
   idealPanelScore: number;
   // Surrounding buildings counted as shade, if they were loaded.
   neighborCount: number;
+  // Annual yield of each design panel and the row in front it was scored
+  // with (see estimateDesignEnergy).
+  yieldCache: WeakMap<ConceptPanel, { length?: number; pitch?: number; value: number }>;
 };
 
 export function createLayoutContext(
@@ -40,7 +43,7 @@ export function createLayoutContext(
   const occluders = new Occluders([
     { positions: model.positions, indices: model.indices },
     { positions: model.wallPositions, indices: model.wallIndices },
-    ...(neighbors ? [{ positions: neighbors.positions, indices: neighbors.indices, groupStarts: neighbors.buildingStarts }] : []),
+    ...(neighbors ? [{ positions: neighbors.positions, indices: neighbors.indices }] : []),
   ]);
   return {
     faces,
@@ -50,6 +53,7 @@ export function createLayoutContext(
     occluders,
     idealPanelScore: idealPanelYield(samples),
     neighborCount: neighbors?.buildingCount ?? 0,
+    yieldCache: new WeakMap(),
   };
 }
 

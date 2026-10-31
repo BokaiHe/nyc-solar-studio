@@ -97,7 +97,7 @@ describe('surrounding buildings', () => {
 
   it('skips box groups a ray cannot reach and still finds hits inside them', () => {
     const neighbor = towerSouth();
-    const occluders = new Occluders([{ positions: neighbor.positions, indices: neighbor.indices, groupStarts: neighbor.buildingStarts }]);
+    const occluders = new Occluders([{ positions: neighbor.positions, indices: neighbor.indices }]);
     // Low sun to the south is blocked; a ray to the north is not.
     expect(occluders.blocked([0, 11, 0], [0, 0.3, 0.95])).toBe(true);
     expect(occluders.blocked([0, 11, 0], [0, 0.3, -0.95])).toBe(false);
