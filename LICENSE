@@ -19,9 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-Scope: this license covers the original application code, preprocessing and
-training scripts, and original documentation text in this repository. Third-party
-software, datasets and derived data, imagery and imagery-containing media,
-and pretrained or fine-tuned model weights are excluded from this grant.
-Their sources and applicable terms are described in THIRD_PARTY_NOTICES.md.
