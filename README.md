@@ -1,321 +1,287 @@
 # NYC Solar Studio
 
-在纽约任意一栋楼的真实三维屋顶上做概念级光伏设计：从航拍地图选楼，用 AI 自动圈出屋顶设备，一键铺板，计入周边建筑遮挡算出全年发电量。纯静态网站，部署在 GitHub Pages 上，不需要服务器或任何 API Key。
+Explore rooftop solar designs on NYC's 3D buildings. Select a building on an aerial map, mark rooftop equipment with AI assistance, generate a panel layout, and estimate annual energy production with shading from surrounding buildings. The app is a static website hosted on GitHub Pages, with no application server or API keys required.
 
-**[功能](#功能) · [数据来源](#数据来源) · [方法](#方法) · [本地运行](#本地运行) · [局限](#局限)**
+**[Live demo](https://bokaihe.github.io/nyc-solar-studio/) · [Features](#features) · [Data sources](#data-sources) · [Methods](#methods) · [Run locally](#run-locally) · [Limitations](#limitations)**
 
-[![NYC Solar Studio 演示：搜索 P.S. 321，在 3D 屋顶上自动识别禁装区、生成阵列、查看冬至阴影、逐块年发电和结果](docs/demo.webp)](docs/demo.mp4)
+[![NYC Solar Studio demo: select P.S. 321, detect rooftop obstacles, generate panels, explore winter shadows, and view annual yield and results](docs/demo.webp)](docs/demo.mp4)
 
-> 演示：从全市地图搜索布鲁克林的 P.S. 321 小学 → 进入 LoD2 三维屋顶 → 打开航拍底图和 2D 俯视 → U-Net 自动识别禁装区 → 生成阵列 → 冬至下午的阴影 → 逐块年发电 → 结果。点击动画查看 60 fps 高清视频。
+> Demo: search for P.S. 321 in Brooklyn → open its LoD2 roof → enable aerial imagery and plan view → detect keep-out areas with U-Net → generate an array → explore winter afternoon shadows → inspect per-panel annual yield → view results. Click the animation for the 60 fps video.
 
 > [!NOTE]
-> 结果用于方案比较和早期沟通，不能代替现场勘测、结构复核和施工设计。建筑模型和航拍反映 2014 年前后的状态，建筑可能已改建。
+> Results support concept design, option comparison, and early discussions. They do not replace a site survey, structural assessment, or construction design. The building models and imagery represent conditions around 2014; buildings may have changed since then.
 
-## 功能
+## Features
 
-- **地图选楼**：纽约州 2014 年正射航拍，放大后显示约 108 万栋建筑的轮廓；支持地址搜索，点在街道上会自动吸附到 25 m 内最近的建筑。
-- **真实三维屋顶**：每栋楼使用 NYC / TUM LoD2 CityGML 模型，保留真实的屋面、坡度、多层屋顶和墙面；200 m 内的周边建筑一起载入，参与遮挡计算。
-- **禁装区**：
-  - 用钢笔式工具逐点勾画楼梯间、设备、检修口或通道；
-  - 也可以点「自动识别」，由浏览器里的 U-Net 模型从航拍中找出屋顶障碍物并框成禁装区；
-  - 每一处都能在列表里单独删除或拖动锚点修改，2D 俯视方便对照底图描边。
-- **自动铺板**：避开禁装区、边缘退距、墙面和遮挡严重的位置，在平屋顶上按支架排布，在坡屋顶上顺坡平铺；改倾角、行距、朝向等参数会实时重排。
-- **日照与阴影**：任意日期、时刻的太阳位置和三维阴影，可连续播放一天的变化。
-- **全年发电量**：基于纽约典型气象年逐块估算，计入建筑自遮挡、排间遮挡和周边建筑遮挡；可以按年发电表现给每块组件着色。
-- **最优布局搜索**：比较 42 种倾角和行距组合，按"总发电量最多"或"兼顾单板效率"排序，一键应用。
-- **方案对比与分享**：A/B 方案比较；草稿自动保存在浏览器里；复制链接即可分享完整方案。
-- **导览**：首次访问时用 P.S. 321 演示完整流程，之后可以随时从右上角「?」打开。
-- **中英文界面**。
+- **Map-based building selection:** browse New York State's 2014 orthoimagery and approximately 1.08 million building outlines. Search by address or click a building; nearby street clicks can snap to a building within 25 m.
+- **3D roof geometry:** NYC / TUM LoD2 CityGML models preserve roof planes, slopes, multiple levels, and walls. Nearby buildings within 200 m are loaded for shading analysis.
+- **Keep-out areas:** trace equipment, bulkheads, access hatches, or walkways with a pen-style tool, or use the browser's U-Net model to suggest obstacle areas. Edit their vertices, delete individual areas from the list, and use plan view to trace against the imagery. Moving, rotating, or changing panel orientation checks the resulting placement against these areas.
+- **Automatic panel layout:** respect keep-out areas, setbacks, walls, and shading filters. Flat roofs use tilted racks; pitched roofs use flush-mounted panels. Untouched generated arrays update when layout settings change.
+- **Sun position and shadows:** choose a date and time or animate the sun through the day.
+- **Annual energy estimates:** estimate each panel's output using New York typical-year weather, including building, row-to-row, and surrounding-building shading. Color panels by annual yield.
+- **Layout search:** compare 42 combinations of rack tilt and row spacing, rank by total energy or a balance of total energy and per-panel performance, and apply a result.
+- **Comparison and sharing:** compare A/B designs, recover a local browser draft, and share a layout by URL.
+- **Guided tour:** follow the P.S. 321 example on a first visit or reopen it with the help button.
+- **English and Chinese interface.**
 
-## 截图
+## Screenshots
 
 | | |
 |---|---|
-| [![地图选楼](docs/screenshots/readme-map.jpg)](docs/screenshots/readme-map.jpg)<br>**地图选楼**：2014 年航拍上点击或搜索建筑，蓝色为选中轮廓 | [![LoD2 三维模型](docs/screenshots/readme-model.jpg)](docs/screenshots/readme-model.jpg)<br>**LoD2 三维屋顶**：选中建筑和 200 m 内的周边建筑（半透明） |
-| [![自动识别禁装区](docs/screenshots/readme-zones.jpg)](docs/screenshots/readme-zones.jpg)<br>**自动识别禁装区**：2D 俯视加航拍底图，红框为 U-Net 识别出的设备和楼梯间 | [![冬至阴影](docs/screenshots/readme-shadows.jpg)](docs/screenshots/readme-shadows.jpg)<br>**阵列与阴影**：415 块组件，冬至下午周边建筑投下的长影 |
-| [![逐块年发电](docs/screenshots/readme-yield.jpg)](docs/screenshots/readme-yield.jpg)<br>**逐块年发电表现**：以理想无遮挡组件为参考着色，靠近楼梯间和女儿墙的组件偏低 | [![结果](docs/screenshots/readme-results.jpg)](docs/screenshots/readme-results.jpg)<br>**结果**：装机容量、年发电量、减碳和节省电费，附计算口径说明 |
+| [![Building selection map](docs/screenshots/readme-map.jpg)](docs/screenshots/readme-map.jpg)<br>**Select a building:** search or click on 2014 aerial imagery; the selected outline appears in blue. | [![LoD2 building model](docs/screenshots/readme-model.jpg)](docs/screenshots/readme-model.jpg)<br>**LoD2 roof:** the selected building and translucent surrounding buildings within 200 m. |
+| [![Automatically detected keep-out areas](docs/screenshots/readme-zones.jpg)](docs/screenshots/readme-zones.jpg)<br>**Obstacle detection:** plan view with aerial imagery; red areas mark equipment and bulkheads detected by U-Net. | [![Winter solstice shadows](docs/screenshots/readme-shadows.jpg)](docs/screenshots/readme-shadows.jpg)<br>**Array and shadows:** 415 panels with long shadows from nearby buildings on a winter afternoon. |
+| [![Per-panel annual yield](docs/screenshots/readme-yield.jpg)](docs/screenshots/readme-yield.jpg)<br>**Annual yield:** colors show output relative to an ideal unshaded module; panels near bulkheads and parapets tend to perform less well. | [![Design results](docs/screenshots/readme-results.jpg)](docs/screenshots/readme-results.jpg)<br>**Results:** capacity, annual energy, estimated avoided emissions, and electricity value, with calculation assumptions. |
 
-## 整体流程
+## Workflow
 
 ```mermaid
 flowchart LR
-  A["航拍地图<br/>搜索或点击建筑"] --> B["载入 LoD2 屋顶<br/>与 200 m 内周边建筑"]
-  B --> C["禁装区<br/>手动勾画 / U-Net 自动识别"]
-  C --> D["自动铺板<br/>退距 · 禁装区 · 遮挡筛选"]
-  D --> E["全年发电量<br/>典型气象年 × 逐块遮挡"]
-  E --> F["结果与分享<br/>容量 · 发电 · 减碳 · 电费"]
-  D -. 调参 / 最优布局搜索 .-> D
+  A["Aerial map<br/>Search or select a building"] --> B["Load LoD2 roof<br/>and neighbors within 200 m"]
+  B --> C["Keep-out areas<br/>Trace manually or detect with U-Net"]
+  C --> D["Generate array<br/>Setbacks, exclusions, shading filters"]
+  D --> E["Annual energy<br/>Typical-year weather and panel shading"]
+  E --> F["Results and sharing<br/>Capacity, energy, emissions, value"]
+  D -. Adjust settings or search layouts .-> D
 ```
 
-所有计算都在浏览器里完成：建筑数据是仓库里的静态瓦片，航拍和地址搜索是免费、无需 Key 的公共服务，AI 模型以 ONNX 文件形式随网站发布。
+All design calculations run in the browser. Building data is stored as static tiles in the repository, imagery and address search use public services that require no API key, and the AI model is distributed as an ONNX file.
 
-## 数据来源
+## Data sources
 
-| 数据 | 提供方 | 年份 | 在项目里的用途 |
+| Data | Provider | Year | Use in the project |
 |---|---|---|---|
-| [纽约 LoD2 三维建筑模型（CityGML）](https://www.asg.ed.tum.de/gis/projekte/new-york-city-3d/) | 纽约市 DoITT 3D Building Model，经慕尼黑工业大学（TUM）整理为 LoD2 | 2014 年测绘，2017 年发布 | 屋顶、墙面、底面几何；地图轮廓；周边遮挡 |
-| [纽约州正射航拍](https://orthos.its.ny.gov/arcgis/rest/services/wms) | NYS ITS Geospatial Services | 2014（网站）；2014/2016/2018（训练） | 地图底图、3D 底图、障碍物识别的输入 |
-| [2017 纽约地形测深 LiDAR](https://noaa-nos-coastal-lidar-pds.s3.amazonaws.com/laz/geoid18/9306/index.html) | NYC / NOAA Office for Coastal Management | 2017 | 仅用于离线生成训练标签，网站运行时不需要 |
-| [NYC GeoSearch](https://geosearch.planninglabs.nyc/) | NYC Planning Labs | 实时 | 地址搜索 |
-| [PVGIS-ERA5 典型气象年](https://joint-research-centre.ec.europa.eu/photovoltaic-geographical-information-system-pvgis_en) | 欧盟联合研究中心（JRC） | 2005–2023 | 逐月逐小时的辐照和气温（`src/lib/solar/nyc-climate.ts`） |
-| [eGRID2023](https://www.epa.gov/egrid) | 美国环保署（EPA） | 2023 | NYCW 子区域电网排放因子 974.66 lb/MWh ≈ 442 kg CO₂/MWh |
-| [RECS 2020](https://www.eia.gov/consumption/residential/) | 美国能源信息署（EIA） | 2020 | 冰箱年耗电 542 kWh，用于结果页的直观换算 |
-| ImageNet 预训练权重 | segmentation_models_pytorch / timm | — | U-Net 编码器的初始化 |
+| [NYC LoD2 building models (CityGML)](https://www.asg.ed.tum.de/gis/projekte/new-york-city-3d/) | NYC DoITT 3D Building Model, converted to LoD2 CityGML by the Technical University of Munich (TUM) | 2014 survey; 2017 release | Roof, wall, and ground geometry; map outlines; surrounding-building shading |
+| [New York State orthoimagery](https://orthos.its.ny.gov/arcgis/rest/services/wms) | NYS ITS Geospatial Services | 2014 in the app; 2014/2016/2018 for training | Map and 3D imagery; obstacle detection input |
+| [2017 NYC topobathymetric LiDAR](https://noaa-nos-coastal-lidar-pds.s3.amazonaws.com/laz/geoid18/9306/index.html) | NYC / NOAA Office for Coastal Management | 2017 | Offline training-label generation only; not needed at runtime |
+| [NYC GeoSearch](https://geosearch.planninglabs.nyc/) | NYC Planning Labs | Live service | Address search |
+| [PVGIS-ERA5 typical meteorological year](https://joint-research-centre.ec.europa.eu/photovoltaic-geographical-information-system-pvgis_en) | European Commission Joint Research Centre (JRC) | 2005–2023 | Monthly/hourly irradiance and temperature profiles in `src/lib/solar/nyc-climate.ts` |
+| [eGRID2023](https://www.epa.gov/egrid) | US Environmental Protection Agency (EPA) | 2023 | NYCW grid emissions factor: 974.66 lb/MWh, approximately 442 kg CO₂/MWh |
+| [RECS 2020](https://www.eia.gov/consumption/residential/) | US Energy Information Administration (EIA) | 2020 | Refrigerator electricity use of 542 kWh/year for a results-page equivalence |
+| ImageNet pretrained weights | segmentation_models_pytorch / timm | — | U-Net encoder initialization |
 
-**默认参数**：组件 1.045 × 1.879 m、400 W；朝南，支架倾角 10°，边缘退距 1.2 m，行距 0.8 m；电价 0.338 美元/kWh（界面可改，正式使用前请按 Con Edison 实际费率核对）。
+**Defaults:** 1.045 × 1.879 m, 400 W modules; south-facing racks at 10°; 1.2 m edge setback; 0.8 m row gap; electricity value of USD 0.338/kWh. The rate is editable and should be checked against the actual electricity tariff.
 
-## 方法
+## Methods
 
-### 1. 建筑模型与静态瓦片
+### 1. Building models and static tiles
 
 ```mermaid
 flowchart LR
-  Z["TUM CityGML ZIP<br/>2.47 GB"] --> I["流式索引<br/>scripts/index-nyc-citygml.py"]
+  Z["TUM CityGML ZIP<br/>2.47 GB"] --> I["Streaming index<br/>scripts/index-nyc-citygml.py"]
   I --> DB[("nyc-citygml.sqlite<br/>R-tree")]
-  I --> FP[("nyc-footprints.sqlite<br/>轮廓 · 高度 · 地址")]
-  DB --> T["切片<br/>npm run data:build-tiles"]
+  I --> FP[("nyc-footprints.sqlite<br/>Outlines, heights, addresses")]
+  DB --> T["Build tiles<br/>npm run data:build-tiles"]
   FP --> T
-  T --> M["public/data/nyc/m/*.bin.gz<br/>三维模型"]
-  T --> O["public/data/nyc/f/*.bin.gz<br/>地图轮廓"]
+  T --> M["public/data/nyc/m/*.bin.gz<br/>3D models"]
+  T --> O["public/data/nyc/f/*.bin.gz<br/>Map outlines"]
 ```
 
-- 保留 CityGML 原有的 RoofSurface、WallSurface、GroundSurface，只做坐标转换（州平面 EPSG:32118 → 场景坐标）和多边形三角化；保留 gml ID、NYC BIN 和原高度。
-- 全市约 108 万栋建筑按 0.003° × 0.0025°（约 250 m）的网格切成 gzip 瓦片，共约 350 MB：
-  - 模型瓦片：州平面坐标，厘米精度，以建筑最小坐标为基准做整数偏移存储；
-  - 轮廓瓦片：经纬度 × 10⁷ 的差分整数，约 1 cm 精度；
-  - 格式见 `src/lib/nyc/tile-format.ts`。
-- 浏览器用 `DecompressionStream` 解压，只下载点击处附近的几块瓦片：
-  - 先在 ±1 格内做点在面内判断，没有命中就吸附到 25 m 内最近的建筑；
-  - 在 ±2 格内收集 200 m 内的周边建筑；
-  - 只保留按距离计算、高出屋面超过 tan(3°) 的建筑，因为太阳高度低于 3° 时的遮挡可以忽略。
+CityGML RoofSurface, WallSurface, and GroundSurface geometry is retained, transformed from EPSG:32118 state-plane coordinates into scene coordinates, and triangulated. Original GML identifiers, NYC BINs, and heights are preserved.
 
-### 2. 日照、阴影与遮挡
+Approximately 1.08 million buildings are grouped into a 0.003° × 0.0025° grid, roughly 250 m per cell, and compressed into about 350 MB of tiles. Model vertices are stored as integer offsets from a building's minimum coordinates, with centimeter-based quantization. Outlines use delta-encoded longitude/latitude integers at a scale of 10⁷. The binary format is defined in `src/lib/nyc/tile-format.ts`.
 
-- **太阳位置**用 SunCalc 计算。
-- **全年发电量的采样**：取每个月 21 日的逐小时太阳位置，只保留太阳在地平线以上、且有辐照的时刻，权重来自 PVGIS 典型气象年。
-- **遮挡判断**：从组件中心向太阳方向发射射线，碰到的物体包括本楼屋面、本楼墙面和周边建筑。
-  - 三角面用包围体层次结构（BVH）加速；
-  - 每 1.5 m 网格缓存一次可见性。
-- **耗时计算放在 Web Worker 里**，界面不会卡：一栋 11,000 块组件的大屋顶，编辑一次约 0.1 秒。
+The browser downloads nearby tiles and decompresses them with `DecompressionStream`. It checks the clicked point against footprints within one grid cell in each direction, then uses a nearby-building fallback within 25 m when needed. Neighbor lookup spans two cells in each direction and filters buildings within 200 m. A distance-dependent height filter keeps potential obstructions above a 3° horizon angle.
 
-### 3. 自动铺板
+### 2. Sun position and shading
 
-每个平面屋面单独处理：
+- **Sun position:** computed with SunCalc.
+- **Annual sampling:** hourly solar positions on the 21st of each month, retaining sunlit samples with nonzero irradiance and weighting them using the PVGIS typical year.
+- **Visibility:** rays from panel centers toward the sun test the building's roof, walls, and surrounding buildings. Triangle tests use a bounding volume hierarchy (BVH); visibility is cached on a 1.5 m grid.
+- **Performance:** layout generation runs in a Web Worker, while incremental energy calculations and instanced rendering reduce editing costs. Recorded tests on an approximately 11,000-panel roof measured about 0.1 seconds of work after an edit; see `docs/ACCEPTANCE.md` for the test conditions.
 
-1. 在屋面局部坐标系里建立 0.2 m 栅格，用距离变换扣除边缘退距；禁装区按 2 m 高差容差投影到对应屋面，再扣除同样的退距。
-2. 支架行与建筑主轴对齐，在 36 种网格偏移里选能放下最多组件的一种。
-3. 对候选位置做全年直射光照评分；低于最佳位置 80% 的位置舍弃，参照常用的 80% TSRF 规则。
-4. 坡度小于 8° 的屋面按支架倾角排布，并留出排间距；坡屋顶则顺坡平铺。
-5. 检查组件不穿墙、不进入周边建筑、不和已有组件重叠。手动放置的组件也走同一套检查。
+### 3. Automatic layout
 
-### 4. 发电量模型
+Each planar roof face is processed separately:
 
-逐块组件、逐月、逐小时计算：
+1. Build a 0.2 m raster in the roof's local plane and apply setbacks using a distance transform. Triangulated keep-out outlines are matched using local heights with a 2 m tolerance, then excluded with the same setback.
+2. Align rows to the building axis and evaluate 36 grid offsets to find the arrangement with the most panels.
+3. Score candidates for annual energy performance and, unless shaded locations are enabled, discard positions below 80% of the best candidate's score.
+4. Roofs below 8° slope use tilted racks and row gaps. Steeper roofs receive flush-mounted panels.
+5. Check candidate panels against walls, higher roof parts, neighboring buildings, and panel overlap. Manual placement also applies clearance checks. Drag completion, rotation, and orientation changes reject an entire selected group if any resulting panel overlaps a keep-out area.
 
-- **组件平面辐照** = 直射（计入上面的遮挡） + 各向同性散射 × 天空可视比例 + 地面反射（反照率 0.2）；
-- **损失**依次计入：ASHRAE 入射角损失、电池温度修正、PVWatts 默认 14% 系统损失、96% 逆变器效率；
-- **对照**：无遮挡、最佳倾角的组件约 1,360 kWh/kWp，比 NREL PVWatts 对纽约的估算高几个百分点，原因是 ERA5 的日照略偏高；结果页给出了按 PVWatts 口径换算的区间。
+### 4. Energy model
 
-### 5. 最优布局搜索
+For each module, representative monthly/hourly samples estimate:
 
-- **搜索范围**：在 Web Worker 里遍历 7 种支架倾角（0°–30°）× 6 种行距（0.3–2 m），共 42 种组合，其他参数保持用户的设置。
-- **复用计算**：同一栋楼的太阳可见性缓存在不同倾角之间共享，中城一栋裙楼的搜索从 92 秒降到约 13 秒。
-- **两种排序目标**：
-  - 总发电量最多；
-  - 平衡：单板效率不低于 90% 的组合里，选总发电量最多的。
-- 列出前 3 名，点一下即可应用。
+- **Plane-of-array irradiance:** shaded direct irradiance, isotropic diffuse irradiance weighted by visible sky, and ground reflection with albedo 0.2.
+- **Losses:** ASHRAE incidence-angle losses, cell-temperature correction, 14% system losses, and 96% inverter efficiency.
+- **Reference output:** the project's unshaded, optimally tilted reference is approximately 1,360 kWh/kWp. The results page also shows an approximate PVWatts comparison range. This comparison is a modeling assumption, not a separate PVWatts calculation for the edited layout.
 
-### 6. 屋顶障碍物识别（U-Net）
+### 5. Layout search
 
-LoD2 模型里没有屋顶上的小设备，所以用一个小型 U-Net 从航拍中识别它们。难点是没有现成的标注，**训练标签用 2017 年 LiDAR 自动生成**：LiDAR 只用来"教"模型，部署后的网站只需要航拍图。
+The optimizer evaluates seven rack tilts from 0° to 30° and six row gaps from 0.3 to 2 m: 42 combinations, with other settings fixed. Solar and sky visibility are reused across candidates. Recorded testing on a Midtown podium reduced search time from 92 seconds to about 13 seconds.
+
+Two objectives are available: maximize total annual energy, or maximize energy among options whose per-panel performance reaches at least 90% of the ideal reference. The top three options can be applied directly.
+
+### 6. Rooftop obstacle detection with U-Net
+
+LoD2 models omit many small rooftop objects. A compact U-Net detects them in aerial imagery. **Training labels are generated automatically from 2017 LiDAR**; the deployed application only needs imagery for inference.
 
 ```mermaid
 flowchart LR
-  L["2017 LiDAR 点云<br/>NOAA COPC"] --> S["逐楼屋面高度<br/>0.3 m 网格取最高回波"]
-  S --> H["顶帽变换<br/>高度 − 8 m 开运算"]
-  H --> Y["标签：凸起 ≥ 0.45 m<br/>忽略坡屋顶 · 边缘 · 高差交界"]
-  A["NYS 航拍<br/>2014 / 2016 / 2018"] --> C["512 × 512 切片<br/>15 cm/像素"]
+  L["2017 LiDAR point cloud<br/>NOAA COPC"] --> S["Roof surface heights<br/>Highest return per 0.3 m cell"]
+  S --> H["Top-hat transform<br/>Height minus 8 m opening"]
+  H --> Y["Labels: protrusions at least 0.45 m<br/>Mask slopes, edges, level transitions"]
+  A["NYS imagery<br/>2014 / 2016 / 2018"] --> C["512 × 512 crops<br/>15 cm per pixel"]
   Y --> C
-  C --> U["U-Net 训练<br/>MobileNetV2 · AutoDL"]
-  U --> X["ONNX fp16 · 8 MB<br/>浏览器 Web Worker 推理"]
+  C --> U["Train U-Net<br/>MobileNetV2 on AutoDL"]
+  U --> X["FP16 ONNX, about 8 MB<br/>Inference in a browser Web Worker"]
 ```
 
-**生成标签**（`ml/nyc_roofs.py`）：
+**Label generation** (`ml/nyc_roofs.py`): within each building footprint, the highest LiDAR return in each 0.3 m cell defines a surface-height raster. An 8 m morphological opening estimates the underlying roof by removing smaller protrusions. Subtracting this estimate identifies objects at least 0.45 m high, such as equipment, bulkheads, tanks, and vents.
 
-- 在每栋楼的脚注内，取每 0.3 m 网格里最高的 LiDAR 回波，得到屋顶表面高度。
-- 对每栋楼单独做 8 m 窗口的形态学开运算，相当于把宽度小于 8 m 的凸起"削平"，得到没有设备的光秃屋面。
-- 两者相减，凸起 0.45 m 以上的就是障碍物：设备、楼梯间、水箱、排风口等。
-- 以下区域标为"忽略"，不参与训练：
-  - 坡屋顶（屋脊会被误当成凸起）；
-  - 屋顶边缘 0.6 m 以内；
-  - 不同高度屋面的交界处；
-  - 面积超过 45 m² 的整片凸起，通常是更高一层的屋面而不是设备。
+Training ignores pitched roofs, the 0.6 m strip around roof edges, transitions between roof levels, and connected raised regions larger than 45 m², which often represent a higher roof level.
 
-![P.S. 321：航拍、LiDAR 标签和 U-Net 预测](docs/figures/ps321-label-prediction.jpg)
+![P.S. 321 aerial imagery, LiDAR labels, and U-Net predictions](docs/figures/ps321-label-prediction.jpg)
 
-<sub>P.S. 321：左为 2014 年航拍；中为 LiDAR 自动标签（红色为障碍物，暗色为不参与训练）；右为 U-Net 在 2014 年航拍上的预测。三个楼梯间和十几个排风口都被找到，其中一条长条是屋面高差处的阴影，属于误报。</sub>
+<sub>P.S. 321: 2014 imagery on the left; LiDAR-derived labels in the middle (red obstacles, dark ignored regions); U-Net predictions on the right. This example detects three bulkheads and multiple vents. A long shadow at a roof-level transition produces a false positive.</sub>
 
-**数据集**（`ml/build_dataset.py`）：在全市随机抽取 60 块 LiDAR（每块约 770 m 见方），生成 1,168 张 512 × 512 切片，每张配 2014、2016、2018 三个年份的航拍。训练、验证、测试集按 LiDAR 块划分（993 / 86 / 89 张），相邻区域不会同时出现在训练集和测试集里；P.S. 321 固定放在测试集。
+**Dataset** (`ml/build_dataset.py`): 60 randomly sampled LiDAR tiles, each approximately 770 m across, produce 1,168 crops of 512 × 512 pixels. Each crop has imagery from 2014, 2016, and 2018. Training, validation, and test splits are grouped by LiDAR tile, with 993 / 86 / 89 crops. P.S. 321 is assigned to the test split.
 
-![不同街区和年份的训练样本](docs/figures/training-samples.jpg)
+![Training examples from different neighborhoods and years](docs/figures/training-samples.jpg)
 
-<sub>训练样本：红色为 LiDAR 标出的障碍物，暗色为不参与训练的区域。三个年份的影像对应同一份标签，让模型适应不同的拍摄季节和光照。</sub>
+<sub>Training examples: red indicates LiDAR-derived obstacles; dark areas are excluded from training. Imagery from three years shares the same labels to expose the model to varying seasons and lighting.</sub>
 
-**训练**（`ml/train/`，在 AutoDL 的 RTX 4090D 上训练 60 轮，约 7 分钟）：
+**Training** (`ml/train/`): the recorded run used an RTX 4090D on AutoDL for 60 epochs, taking about seven minutes.
 
-- U-Net 加 ImageNet 预训练的 MobileNetV2 编码器，解码器做了精简，导出后的 fp16 ONNX 只有 8 MB；
-- 损失函数为 BCE（正样本权重 3）加 Dice，只在有标签的像素上计算；
-- 数据增强：随机裁剪 384、旋转、翻转、亮度、对比度、色调和 gamma；
-- 优化器 AdamW，配合预热和余弦退火学习率。
+- U-Net with an ImageNet-pretrained MobileNetV2 encoder and a reduced decoder; the FP16 ONNX export is approximately 8 MB.
+- Binary cross-entropy with positive-class weight 3, plus Dice loss, evaluated only on labeled pixels.
+- Augmentation: random 384-pixel crops, rotations, flips, brightness, contrast, hue, and gamma changes.
+- AdamW optimizer with warmup and cosine learning-rate decay.
 
-![验证集成绩随训练轮次的变化](docs/figures/training-curve.svg)
+![Validation metrics over training epochs](docs/figures/training-curve.svg)
 
-**成绩**（阈值 0.4，在验证集上选定）：
+**Reported evaluation results**, using threshold 0.4 selected on the validation split:
 
-| | 像素 F1 | 像素 IoU | 物体检出率 | 物体准确率 | 障碍物数 |
+| Split | Pixel F1 | Pixel IoU | Object recall | Object precision | Obstacles |
 |---|---|---|---|---|---|
-| 验证集 | 0.41 | 0.26 | 0.49 | 0.61 | 1,671 |
-| 测试集 | 0.43 | 0.28 | 0.49 | 0.60 | 1,425 |
+| Validation | 0.41 | 0.26 | 0.49 | 0.61 | 1,671 |
+| Test | 0.43 | 0.28 | 0.49 | 0.60 | 1,425 |
 
-- **物体检出率**：LiDAR 标出的障碍物（≥ 0.3 m²）里，被模型碰到的比例。
-- **物体准确率**：模型框出的区块里，确实有障碍物的比例。
-- **这两个数字低估了实际效果**：
-  - 漏检的多是排屋屋顶上只有几个像素的小排风口，在航拍上本来就看不见；
-  - 一部分"误报"其实是平贴在屋面上的天窗，LiDAR 量不出高度差所以没标，但模型认出来了。
+Object recall measures the fraction of LiDAR-labeled objects of at least 0.3 m² overlapped by a prediction. Object precision measures the fraction of predicted regions that overlap a labeled obstacle. These metrics use automatically generated labels: small vents may be difficult to see in imagery, while flat skylights can be absent from height-based labels. The results still require manual review; label limitations do not establish a higher real-world accuracy.
 
-![测试集预测](docs/figures/test-predictions.jpg)
+![Predictions on held-out test neighborhoods](docs/figures/test-predictions.jpg)
 
-<sub>测试集（训练时没见过的街区）：红色为 LiDAR 障碍物，青色轮廓为模型预测。</sub>
+<sub>Held-out test neighborhoods: red shows LiDAR-derived obstacles; cyan outlines show model predictions.</sub>
 
-标签生成、模型和训练的代码，以及训练曲线、阈值扫描和三栋真实建筑上的预测，都汇总在 [`ml/unet-results.ipynb`](ml/unet-results.ipynb) 里，可以直接在 GitHub 上查看。
+The label-generation and training code, learning curves, threshold sweep, and predictions on three buildings are collected in [`ml/unet-results.ipynb`](ml/unet-results.ipynb), which can be viewed on GitHub.
 
-**在网站里**（`src/lib/design/obstacle.worker.ts`、`detect-obstacles.ts`）：
+**Browser inference** (`src/lib/design/obstacle.worker.ts`, `detect-obstacles.ts`):
 
-1. 用户点击「自动识别」时，才加载 ONNX Runtime Web（WebAssembly 版，约 15 MB）和模型。
-2. 从 3D 底图里裁出这栋楼平屋面的范围，重采样到 15 cm/像素，切成重叠的 512 像素块，在 Web Worker 里推理。
-3. 概率不低于 0.4 的像素经过形态学清理，按连通区域分组，再用旋转卡壳法求最小面积外接矩形，外扩 0.15 m 后成为禁装区。
-4. 首次识别约 3 秒。模型加载失败时，改用颜色异常算法：按屋面颜色的中位数和中位绝对偏差（MAD）找出异常像素。
+1. Load ONNX Runtime Web's WebAssembly runtime, approximately 15 MB, and the model when the user first requests detection.
+2. Crop the building's flat roofs from the scene imagery, resample toward 15 cm per pixel, and process overlapping 512-pixel tiles in a Web Worker.
+3. Threshold probabilities at 0.4, apply morphological cleanup, group connected components, and fit minimum-area rectangles. Expand them by 0.15 m to create keep-out areas.
+4. The recorded example took approximately three seconds on first detection. If model loading fails, a color-anomaly fallback uses the roof's median color and median absolute deviation (MAD).
 
-### 7. 结果
+### 7. Results
 
-- **装机容量** = 组件数 × 400 W。
-- **年发电量**：按第 4 节逐块求和。
-- **减碳** = 年发电量 × 442 kg CO₂/MWh。
-- **节省电费** = 年发电量 × 电价。
-- 结果页会说明：是否扣除了禁装区、年发电量使用典型气象年（和时间条显示的日期无关）、PVWatts 口径的换算区间，以及组件和损失假设。
+- **Installed capacity:** module count × 400 W by default.
+- **Annual energy:** sum of per-module estimates from the energy model above.
+- **Estimated avoided emissions:** annual energy in MWh × 442 kg CO₂/MWh.
+- **Electricity value:** annual energy × the entered electricity rate.
 
-## 技术栈
+The results panel states whether keep-out areas were deducted, explains that annual output uses typical-year weather independently of the sun-bar date, and lists the comparison range, module specifications, and loss assumptions.
 
-- **网页**：Next.js（静态导出）、React、TypeScript、Tailwind CSS、MapLibre GL、Three.js / React Three Fiber、SunCalc、Proj4、ONNX Runtime Web、Vitest。
-- **数据处理**：Node SQLite、fast-xml-parser、Python（numpy、scipy、laspy、pyproj、Pillow）。
-- **训练**：PyTorch、segmentation_models_pytorch、ONNX。
-- **演示录制**：Playwright、FFmpeg。
+## Technology stack
 
-## 本地运行
+- **Web app:** Next.js static export, React, TypeScript, Tailwind CSS, MapLibre GL, Three.js / React Three Fiber, SunCalc, Proj4, ONNX Runtime Web, and Vitest.
+- **Data preparation:** Node SQLite, fast-xml-parser, and Python with NumPy, SciPy, laspy, pyproj, and Pillow.
+- **Model training:** PyTorch, segmentation_models_pytorch, and ONNX.
+- **Demo recording:** Playwright and FFmpeg.
 
-需要 Node.js 22.13+（已验证 Node 24）。仓库已包含建筑瓦片和模型：
+## Run locally
+
+Use Node.js 22.13 or later; Node 24 has been tested. Building tiles and the obstacle model are included in the repository.
 
 ```bash
 npm install
-```
-
-```bash
 npm run dev
 ```
 
-打开 http://localhost:3000 。`npm run dev` 和 `npm run build` 会先把 ONNX Runtime 的 WebAssembly 复制到 `public/ort`。
+Open [localhost:3000](http://localhost:3000/). Both `npm run dev` and `npm run build` first copy ONNX Runtime's WebAssembly assets into `public/ort`.
 
-检查：
+Run checks:
 
 ```bash
 npm test
-```
-
-```bash
 npm run lint
+npm run build
 ```
 
-## 部署到 GitHub Pages
+## Deploy to GitHub Pages
 
-1. 把仓库推送到 GitHub，包括 `public/data/nyc`（约 350 MB）和 `public/models`。
-2. 在仓库 Settings → Pages 里，把 Source 选为 **GitHub Actions**。
-3. 推送到 `main`，或手动运行 "Deploy to GitHub Pages" 工作流（`.github/workflows/pages.yml`）。它会以仓库路径作为 `NEXT_PUBLIC_BASE_PATH` 静态导出 `out/` 并发布。
+The live application is available at [bokaihe.github.io/nyc-solar-studio](https://bokaihe.github.io/nyc-solar-studio/).
 
-本地预览静态导出：先运行 `npm run build`，再用任意静态服务器打开 `out/`。
+To deploy your own copy:
 
-## 重新生成数据和模型
+1. Push the repository to GitHub, including `public/data/nyc` (approximately 350 MB) and `public/models`.
+2. In **Settings → Pages**, select **GitHub Actions** as the source. Ensure the `github-pages` environment allows deployment from `main`.
+3. Push to `main`, or manually run **Deploy to GitHub Pages** (`.github/workflows/pages.yml`). The workflow sets `NEXT_PUBLIC_BASE_PATH` to the repository path, exports the site to `out/`, and deploys it.
 
-**建筑瓦片**：把 [官方 CityGML ZIP](https://www.3dcitydb.net/3dcitydb/fileadmin/public/datasets/NYC/NYC_buildings_CityGML_LoD2/NYC_Buildings_LoD2_CityGML.zip)（约 2.47 GB）放到 `data/raw/nyc-tum/`，然后运行：
+To preview the export locally, run `npm run build` and serve `out/` with a static HTTP server.
+
+## Rebuild data and models
+
+### Building tiles
+
+Download the [official CityGML ZIP](https://www.3dcitydb.net/3dcitydb/fileadmin/public/datasets/NYC/NYC_buildings_CityGML_LoD2/NYC_Buildings_LoD2_CityGML.zip), approximately 2.47 GB, into `data/raw/nyc-tum/`, then run:
 
 ```bash
 python scripts/index-nyc-citygml.py --archive data/raw/nyc-tum/NYC_Buildings_LoD2_CityGML.zip --output data/processed/nyc-citygml.sqlite --sevenzip node_modules/7zip-bin/win/x64/7za.exe
-```
-
-```bash
 npm run data:build-footprints
-```
-
-```bash
 npm run data:build-tiles
 ```
 
-- `data:build-tiles` 单进程约 2 小时，可以传入经纬度范围（`west,south,east,north`）分区并行运行；已写出的瓦片会跳过；最后不带范围再运行一次，生成 `index.json`。
-- 研究区边界（地图上的蓝线）由 `npm run data:build-coverage` 生成。
+The indexing command above uses the bundled Windows 7-Zip binary; use your system's compatible 7-Zip path on other platforms.
 
-**障碍物模型**：需要 Python 3.10+，会下载约 4 GB LiDAR。
+`data:build-tiles` takes approximately two hours in a single process. It accepts a geographic bounding box (`west,south,east,north`) for partitioned runs and skips existing tiles. After all partitions finish, run it without a bounding box to refresh `index.json`. The blue study-area boundary is generated by `npm run data:build-coverage`.
+
+### Obstacle model
+
+Python 3.10 or later is required. Dataset preparation downloads approximately 4 GB of LiDAR. The following commands use Windows virtual-environment paths:
 
 ```bash
 python -m venv ml/.venv
-```
-
-```bash
 ml/.venv/Scripts/python -m pip install numpy scipy "laspy[lazrs]" pyproj pillow
-```
-
-```bash
 ml/.venv/Scripts/python ml/build_dataset.py --tiles 60 --out data/ml/dataset
-```
-
-```bash
 ml/.venv/Scripts/python ml/package_autodl.py
 ```
 
-把 `data/ml/autodl-package.zip` 上传到 GPU 服务器，按包里的 `train/README.md` 训练、评估、导出。然后：
-- 把 `model.fp16.onnx` 放到 `public/models/roof-obstacles.onnx`；
-- 阈值在 `src/lib/design/obstacle-model.ts` 里修改；
-- 配图由 `ml/make_figures.py` 生成；[`ml/unet-results.ipynb`](ml/unet-results.ipynb) 汇总了标签生成和训练代码、训练曲线、测试成绩和在真实建筑上的预测（在本地运行，不重新训练）。
+Upload `data/ml/autodl-package.zip` to a GPU server and follow its `train/README.md` to train, evaluate, and export the model.
 
-## 录制演示动画
+- Copy `model.fp16.onnx` to `public/models/roof-obstacles.onnx`.
+- Set the inference threshold in `src/lib/design/obstacle-model.ts`.
+- Generate figures with `ml/make_figures.py`.
+- Use [`ml/unet-results.ipynb`](ml/unet-results.ipynb) to inspect label generation, training code, metrics, and building predictions locally without retraining.
 
-需要 FFmpeg、Microsoft Edge，以及装有 Pillow 的 Python。先启动本地站点（推荐用静态导出），再运行：
+## Record the demo
+
+Install FFmpeg, Microsoft Edge, and Python with Pillow. Start a local copy of the site, preferably a static export, then run:
 
 ```bash
 npm run demo:record -- http://localhost:8090/solar-3d-web/
-```
-
-```bash
 npm run readme:screenshots
 ```
 
-- `demo:record` 按 [分镜](docs/demo-storyboard.md) 驱动真实界面，用 Chrome DevTools 截屏流逐帧采集，生成：
-  - `docs/demo.mp4`：60 fps，1440 × 900；
-  - `docs/demo.webp`：20 fps 动态 WebP，800 px 宽，用于 README。
-- `readme:screenshots` 从视频中抽取截图。
-- 默认录制英文界面，设置 `DEMO_LANG=zh` 录制中文界面；原始帧约 1 GB，可用 `DEMO_TMP` 指定存放目录。
+Replace the example URL with the address and base path of your local server.
 
-## 局限
+`demo:record` follows the [storyboard](docs/demo-storyboard.md) using the real interface and captures timestamped Chrome DevTools screencast frames. It produces `docs/demo.mp4` at 60 fps and 1440 × 900 resolution, plus `docs/demo.webp`, a 20 fps, 800-pixel-wide README preview. `readme:screenshots` extracts still images from the recording.
 
-- **建筑模型和航拍的时间**：都是 2014 年前后的状态，之后新建、拆除或加建的建筑对不上。
-- **航拍偏移**：高楼在航拍上有倾斜，屋顶影像和自动识别的框可能偏离几米。
-- **遮挡没有计入的东西**：树木、天气、积雪和屋顶上的小设备都没有算进遮挡；自动识别出的禁装区只用来避让，不参与阴影计算。
-- **自动识别需要核对**：会漏掉和屋面颜色相近或 2014 年后才加装的设备，偶尔也会把高差处的阴影线误报成障碍物。
-- **发电量是估算**：用于方案比较，未考虑组件串并联、逆变器选型、屋面荷载和消防通道等工程约束。
-- **电价是默认值**：0.338 美元/kWh 只是示例，需要按实际电费单修改。
+The default recording language is English; set `DEMO_LANG=zh` for Chinese. Raw frames require approximately 1 GB; use `DEMO_TMP` to select their storage directory.
 
-## 来源与致谢
+## Limitations
+
+- **Historical data:** building models and imagery represent conditions around 2014. Later construction, demolition, and extensions may not match.
+- **Image alignment:** roof displacement in tall-building imagery can shift textures and detected regions by several meters.
+- **Shading coverage:** trees, snow, and small rooftop equipment are not modeled as shading geometry. Detected keep-out areas exclude panels but do not cast shadows. The sun animation does not simulate changing weather.
+- **Detection requires review:** equipment with roof-like colors or installed after the imagery date may be missed. Shadows at roof-level transitions can produce false positives.
+- **Concept-level energy estimates:** electrical string design, inverter selection, roof loading, and code-specific fire-access requirements are not resolved by the app.
+- **Illustrative electricity rate:** USD 0.338/kWh is a default assumption. Actual bill savings depend on tariffs, consumption, and export compensation.
+
+## Attribution and acknowledgments
 
 - Building models: NYC Open Data / DoITT 3D Building Model; LoD2 CityGML by the Chair of Geoinformatics, Technical University of Munich.
 - Imagery © NYS ITS Geospatial Services. LiDAR: 2017 New York City Topobathymetric LiDAR, NYC / NOAA Office for Coastal Management.
 - Address search: NYC Planning Labs GeoSearch. Climate: PVGIS-ERA5 TMY, European Commission JRC. Grid factor: EPA eGRID2023.
 
-公开使用时请保留以上来源说明，并遵守各数据的使用条款。
+Retain these attributions when sharing the project and follow each dataset's terms of use.
