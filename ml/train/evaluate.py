@@ -21,21 +21,15 @@ from torch.utils.data import DataLoader
 from common import EVAL_YEAR, Chips, build_model, load_splits, load_years, predict_all, score
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--data', default='../dataset')
-    parser.add_argument('--run', default='runs/unet')
-    parser.add_argument('--previews', type=int, default=40)
-    parser.add_argument('--workers', type=int, default=8)
-    args = parser.parse_args()
-
-    data, run = Path(args.data), Path(args.run)
+def evaluate(data: Path, run: Path, *, previews: int = 40, workers: int = 8) -> dict:
+    """Picks the threshold, scores the test split and writes metrics.json and previews."""
+    data, run = Path(data), Path(run)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     state = torch.load(run / 'best.pt', map_location=device)
     model = build_model(state['config']['encoder'], pretrained=False).to(device)
     model.load_state_dict(state['model'])
     splits, years = load_splits(data), load_years(data)
-    loader = lambda names: DataLoader(Chips(data, names, years, train=False), batch_size=16, num_workers=args.workers)
+    loader = lambda names: DataLoader(Chips(data, names, years, train=False), batch_size=16, num_workers=workers)
 
     validation = predict_all(model, loader(splits['val']), device)
     sweep = {round(t, 2): score(validation, t) for t in np.arange(0.3, 0.81, 0.05)}
@@ -44,18 +38,29 @@ def main() -> None:
     metrics = {'threshold': threshold, 'val': sweep[threshold], 'test': score(test, threshold), 'epoch': state['epoch'],
                'sweep': {str(t): {k: round(v, 4) for k, v in m.items()} for t, m in sweep.items()}}
     (run / 'metrics.json').write_text(json.dumps(metrics, indent=1))
-    print(json.dumps({'threshold': threshold, 'val': metrics['val'], 'test': metrics['test']}, indent=1))
 
-    previews = run / 'previews'
-    previews.mkdir(exist_ok=True)
-    for name, (probability, target, valid) in list(zip(splits['test'], test))[:args.previews]:
+    folder = run / 'previews'
+    folder.mkdir(exist_ok=True)
+    for name, (probability, target, valid) in list(zip(splits['test'], test))[:previews]:
         image = np.asarray(Image.open(data / 'images' / f'{name}_{EVAL_YEAR}.jpg').convert('RGB'), dtype=np.float32)
         image[~valid] *= 0.5
         image[target] = image[target] * 0.4 + np.array([255, 40, 40]) * 0.6
         predicted = (probability >= threshold) & valid
         outline = predicted & ~ndimage.binary_erosion(predicted, iterations=2)
         image[outline] = [0, 230, 255]
-        Image.fromarray(image.clip(0, 255).astype(np.uint8)).save(previews / f'{name}.jpg', quality=90)
+        Image.fromarray(image.clip(0, 255).astype(np.uint8)).save(folder / f'{name}.jpg', quality=90)
+    return metrics
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data', default='../dataset')
+    parser.add_argument('--run', default='runs/unet')
+    parser.add_argument('--previews', type=int, default=40)
+    parser.add_argument('--workers', type=int, default=8)
+    args = parser.parse_args()
+    metrics = evaluate(args.data, args.run, previews=args.previews, workers=args.workers)
+    print(json.dumps({'threshold': metrics['threshold'], 'val': metrics['val'], 'test': metrics['test']}, indent=1))
 
 
 if __name__ == '__main__':

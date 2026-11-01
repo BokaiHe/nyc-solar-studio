@@ -187,6 +187,8 @@ flowchart LR
 
 <sub>测试集（训练时没见过的街区）：红色为 LiDAR 障碍物，青色轮廓为模型预测。</sub>
 
+标签生成、模型和训练的代码，以及训练曲线、阈值扫描和三栋真实建筑上的预测，都汇总在 [`ml/unet-results.ipynb`](ml/unet-results.ipynb) 里，可以直接在 GitHub 上查看。
+
 **在网站里**（`src/lib/design/obstacle.worker.ts`、`detect-obstacles.ts`）：
 
 1. 用户点击「自动识别」时，才加载 ONNX Runtime Web（WebAssembly 版，约 15 MB）和模型。
@@ -278,10 +280,10 @@ ml/.venv/Scripts/python ml/build_dataset.py --tiles 60 --out data/ml/dataset
 ml/.venv/Scripts/python ml/package_autodl.py
 ```
 
-把 `data/ml/autodl-package.zip` 上传到 GPU 服务器，按包里的 `train/README.md` 依次训练、评估、导出。然后：
+把 `data/ml/autodl-package.zip` 上传到 GPU 服务器，按包里的 `train/README.md` 训练、评估、导出。然后：
 - 把 `model.fp16.onnx` 放到 `public/models/roof-obstacles.onnx`；
 - 阈值在 `src/lib/design/obstacle-model.ts` 里修改；
-- 配图由 `ml/make_figures.py` 生成。
+- 配图由 `ml/make_figures.py` 生成；[`ml/unet-results.ipynb`](ml/unet-results.ipynb) 汇总了标签生成和训练代码、训练曲线、测试成绩和在真实建筑上的预测（在本地运行，不重新训练）。
 
 ## 录制演示动画
 

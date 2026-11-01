@@ -29,18 +29,14 @@ class WithSigmoid(torch.nn.Module):
         return torch.sigmoid(self.model(image))
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--run', default='runs/unet')
-    parser.add_argument('--size', type=int, default=512, help='Example input size used for tracing')
-    args = parser.parse_args()
-
-    run = Path(args.run)
+def export(run: Path, *, size: int = 512) -> dict[str, str]:
+    """Writes the ONNX models and model.json; returns the model files by precision."""
+    run = Path(run)
     state = torch.load(run / 'best.pt', map_location='cpu')
     model = build_model(state['config']['encoder'], pretrained=False)
     model.load_state_dict(state['model'])
     wrapped = WithSigmoid(model).eval()
-    example = torch.randn(1, 3, args.size, args.size)
+    example = torch.randn(1, 3, size, size)
     path = run / 'model.onnx'
     torch.onnx.export(
         wrapped, example, path, opset_version=17, input_names=['image'], output_names=['probability'],
@@ -50,12 +46,12 @@ def main() -> None:
 
     # The exported graph must agree with PyTorch.
     session = onnxruntime.InferenceSession(str(path), providers=['CPUExecutionProvider'])
-    for size in (args.size, 384):
-        sample = torch.randn(1, 3, size, size)
+    for side in (size, 384):
+        sample = torch.randn(1, 3, side, side)
         expected = wrapped(sample).detach().numpy()
         actual = session.run(None, {'image': sample.numpy()})[0]
         difference = float(np.abs(expected - actual).max())
-        print(f'{size}px: max difference {difference:.2e}')
+        print(f'{side}px: max difference {difference:.2e}')
         assert difference < 1e-3, difference
 
     files = {'fp32': path.name}
@@ -82,6 +78,15 @@ def main() -> None:
     }, indent=1))
     for name in files.values():
         print(f'{name}: {(run / name).stat().st_size / 1e6:.1f} MB')
+    return files
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--run', default='runs/unet')
+    parser.add_argument('--size', type=int, default=512, help='Example input size used for tracing')
+    args = parser.parse_args()
+    export(args.run, size=args.size)
 
 
 if __name__ == '__main__':

@@ -17,24 +17,20 @@ autodl-package/
 
 ## 在 AutoDL 上运行
 
-推荐镜像：PyTorch 2.x + CUDA 12.x，任意 24 GB 显卡（RTX 3090/4090 即可，12 GB 也够，把 `--batch` 改成 8）。
+推荐镜像：PyTorch 2.x + CUDA 12.x，任意 24 GB 显卡（RTX 3090/4090 即可；12 GB 也够，把 batch 改成 8）。60 轮约 7 分钟。
+
+安装依赖时要关掉学术加速（开着会连不上 pip 镜像），训练时再打开（下载 ImageNet 预训练权重需要）。用 `nohup` 放到后台运行，关掉网页也不会中断：
 
 ```bash
-cd /root/autodl-tmp
-unzip -q autodl-package.zip && cd autodl-package/train
+cd /root/autodl-tmp && unzip -q autodl-package.zip
+cd autodl-package/train && unset http_proxy https_proxy && pip install -r requirements.txt
+source /etc/network_turbo && nohup python train.py --data ../dataset --out runs/unet > train.log 2>&1 &
+tail -f train.log        # Ctrl+C 只退出查看，训练继续；断了加 --resume 接着训
 
-# 学术加速：下载 pip 包和 ImageNet 预训练权重需要
-source /etc/network_turbo
-pip install -r requirements.txt
-
-# 训练（约 30–60 分钟）；断了加 --resume 接着训
-python train.py --data ../dataset --out runs/unet
-
-# 选阈值、测试集打分、生成对比图
+# 训练结束（出现 best val f1）后依次运行，期间不要按键
 python evaluate.py --data ../dataset --run runs/unet
-
-# 导出给浏览器用的 ONNX
 python export_onnx.py --run runs/unet
+cd runs && zip -r unet-result.zip unet -x "unet/*.pt"
 ```
 
 预训练权重下载不了时，加 `--no-pretrained` 从零训练（效果会差一些，可以把 `--epochs` 加到 100）。
