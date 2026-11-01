@@ -40,7 +40,7 @@ type RoofScene3DProps = {
   onUpdateZone: (id: number, points: Position[]) => void;
   onSelect: (ids: number[], mode: SelectMode) => void;
   onCheckpoint: () => void;
-  onMovePanels: (positions: Array<[number, Position]>) => void;
+  onMovePanels: (positions: Array<[number, Position]>, finish?: boolean) => void;
   onCancelGesture: () => void;
   onRemovePanels: (ids: number[]) => void;
 };
@@ -594,7 +594,7 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
         const seated = gesture.origins.map(([panel, origin]) => [panel.id, reseat(panel, origin[0] + dx, origin[2] + dz)] as const);
         // Dropping any panel off the roof cancels the whole move.
         if (seated.some(([, position]) => position === null)) onCancelGesture();
-        else onMovePanels(seated as Array<[number, Position]>);
+        else onMovePanels(seated as Array<[number, Position]>, true);
       } else if (gesture.kind === 'marquee') {
         setMarquee(null);
         const width = Math.abs(event.clientX - gesture.startX);

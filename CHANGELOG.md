@@ -4,6 +4,11 @@ All notable changes will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Validate the whole selection against keep-out areas when a drag finishes, or modules rotate or change orientation. Rejected edits preserve the previous placement and show a message; invalid drag previews never enter redo or the saved draft.
+- Compare keep-out areas at local roof heights, using triangulated outlines, so long pitched roofs retain their exclusions without blocking separate roof levels.
+
 ### Added
 
 - Detect keep-out areas: a U-Net trained on 2014 orthoimagery with labels from the 2017 NYC LiDAR (rooftop objects rising 0.45 m+ above the roof) runs in the browser through ONNX Runtime Web in a Web Worker, and its marks on flat roofs become rectangles tagged Auto. They can be removed from a list in the side panel or reshaped; detecting again replaces only the untouched ones, as one undo step. The model (8 MB) and runtime (15 MB) load on first use; a color-anomaly rule stands in if they cannot. Dataset building, AutoDL training, evaluation and export scripts live in `ml/`.

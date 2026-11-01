@@ -81,6 +81,23 @@ describe('auto layout collisions', () => {
 describe('keep-out zones', () => {
   const zone = { id: 1, points: [[-4, 10, -3], [4, 10, -3], [4, 10, 3], [-4, 10, 3]] as Array<[number, number, number]> };
 
+  it('excludes a long sloped zone using local roof heights, preserving other roof levels', () => {
+    const sloped = { ...roof, positions: [-15, 12.5, -10, 15, 27.5, -10, 15, 27.5, 10, -15, 12.5, 10] };
+    const slopeZone = { id: 2, points: [[-10, 15, -3], [10, 25, -3], [10, 25, 3], [-10, 15, 3]] as Array<[number, number, number]> };
+    const params = { ...DEFAULT_PARAMS, includeShaded: true };
+    const context = createLayoutContext(sloped);
+    const open = autoLayout(sloped, params, size, context).panels;
+    const blocked = autoLayout(sloped, { ...params, keepOut: [slopeZone] }, size, context).panels;
+    expect(blocked.length).toBeGreaterThan(20);
+    expect(blocked.length).toBeLessThan(open.length);
+    // Independent geometric check: none of the centers can be in the marked rectangle.
+    expect(open.some(({ position: [x, , z] }) => Math.abs(x) < 10 && Math.abs(z) < 3)).toBe(true);
+    expect(blocked.some(({ position: [x, , z] }) => Math.abs(x) < 10 && Math.abs(z) < 3)).toBe(false);
+    expect(blocked.some(p => panelInZones(p, size, [slopeZone]))).toBe(false);
+    const below = { ...slopeZone, points: slopeZone.points.map(([x, y, z]) => [x, y - 10, z] as [number, number, number]) };
+    expect(autoLayout(sloped, { ...params, keepOut: [below] }, size, context).panels).toHaveLength(open.length);
+  });
+
   it('keeps auto layout out of a zone and its setback', () => {
     const params = { ...DEFAULT_PARAMS, includeShaded: true, keepOut: [zone] };
     const { panels } = autoLayout(roof, params, size, createLayoutContext(roof));

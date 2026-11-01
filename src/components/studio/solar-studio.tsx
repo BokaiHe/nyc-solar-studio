@@ -21,7 +21,7 @@ import type { LayoutOption, Objective } from '@/lib/design/optimizer';
 import type { LayoutMessage, LayoutRequest } from '@/lib/design/layout.worker';
 import type { OptimizerMessage, OptimizerRequest } from '@/lib/design/optimizer.worker';
 import { insideStudyArea, STUDY_AREA_BUILDINGS } from '@/lib/nyc/study-area';
-import { canDesign, initialStudioState, isUntouchedLayout, sameParams, shadingKey, studioReducer, type LayoutParams, type Tool } from '@/lib/design/state';
+import { canDesign, initialStudioState, isUntouchedLayout, sameParams, savedPanels, shadingKey, studioReducer, type LayoutParams, type Tool } from '@/lib/design/state';
 import { useI18n } from '@/lib/i18n';
 import { loadBasemap, type Basemap } from '@/lib/map-tiles';
 import { summarizeDesign } from '@/lib/solar/calculations';
@@ -264,7 +264,7 @@ export function SolarStudio() {
     () => (layoutContext ? estimateDesignEnergy(energyPanels, layoutContext, panelSize) : null),
     [energyPanels, layoutContext, panelSize],
   );
-  const energyPending = energyPanels !== panels || building.neighborStatus === 'loading' || layoutBusy;
+  const energyPending = state.moving || energyPanels !== panels || building.neighborStatus === 'loading' || layoutBusy;
   const annualRatios = useMemo(() => {
     if (!heatmap || !energy || !layoutContext) return undefined;
     return new Map(energyPanels.map((panel, i) => [panel.id, layoutContext.idealPanelScore > 0 ? energy.yields[i] / layoutContext.idealPanelScore : 0]));
@@ -283,6 +283,7 @@ export function SolarStudio() {
     return { A: measure('A'), B: measure('B') };
   }, [comparisons, layoutContext, panelSize, panelWatts]);
 
+  const draftPanels = savedPanels(state);
   // Keep the latest building's design in this browser. Nothing is saved until
   // a layout or a keep-out area exists, so merely opening a building never
   // overwrites a draft; a layout cleared by hand is a design too and is saved.
@@ -296,7 +297,7 @@ export function SolarStudio() {
         buildingId,
         label: building.label,
         location,
-        ...snapshot(panels, params),
+        ...snapshot(draftPanels, params),
         comparisons,
         panelSize,
         panelWatts,
@@ -317,7 +318,7 @@ export function SolarStudio() {
       window.clearTimeout(timer);
       window.removeEventListener('pagehide', save);
     };
-  }, [building.label, comparisons, layoutBusy, location, model, panelSize, panelWatts, panels, params, rate, state.pristine]);
+  }, [building.label, comparisons, draftPanels, layoutBusy, location, model, panelSize, panelWatts, params, rate, state.pristine]);
   const summary = useMemo(() => summarizeDesign({
     panelCount: panels.length,
     panelWatts,
@@ -434,10 +435,10 @@ export function SolarStudio() {
     onUpdateZone: (id: number, points: Vec3[]) => dispatch({ type: 'update-zone', id, points }),
     onSelect: (ids: number[], mode: 'replace' | 'add' | 'toggle') => dispatch({ type: 'select', ids, mode }),
     onCheckpoint: () => dispatch({ type: 'checkpoint' }),
-    onMovePanels: (positions: Array<[number, Vec3]>) => dispatch({ type: 'move-panels', positions }),
-    onCancelGesture: () => dispatch({ type: 'undo' }),
+    onMovePanels: (positions: Array<[number, Vec3]>, finish = false) => dispatch({ type: 'move-panels', positions, finish, panelSize }),
+    onCancelGesture: () => dispatch({ type: 'cancel-move' }),
     onRemovePanels: (ids: number[]) => dispatch({ type: 'remove-panels', ids, record: false }),
-  }), [minSpacing]);
+  }), [minSpacing, panelSize]);
 
   useEffect(() => () => {
     workerRef.current?.terminate();
@@ -774,8 +775,8 @@ export function SolarStudio() {
               {editing && selectedIds.length > 0 && (
                 <SelectionBar
                   count={selectedIds.length}
-                  onRotate={(degrees) => dispatch({ type: 'transform-panels', ids: selectedIds, azimuthDelta: degrees })}
-                  onToggleOrientation={() => dispatch({ type: 'transform-panels', ids: selectedIds, toggleLandscape: true })}
+                  onRotate={(degrees) => dispatch({ type: 'transform-panels', ids: selectedIds, azimuthDelta: degrees, panelSize })}
+                  onToggleOrientation={() => dispatch({ type: 'transform-panels', ids: selectedIds, toggleLandscape: true, panelSize })}
                   onSelectRow={() => selectRelated(rowPanelIds)}
                   onSelectRoof={() => selectRelated(similarPanelIds)}
                   onSelectAll={() => dispatch({ type: 'select', ids: panels.map((panel) => panel.id), mode: 'replace' })}

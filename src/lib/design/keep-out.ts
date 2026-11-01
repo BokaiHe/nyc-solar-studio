@@ -1,6 +1,7 @@
 import type { ConceptPanel } from '@/lib/solar/types';
 import type { PanelSize } from './geometry';
-import type { Vec3 } from './roof-faces';
+import { ShapeUtils, Vector2 } from 'three';
+import { planeHeight, type RoofFace, type Vec3 } from './roof-faces';
 
 // An area of the roof where no panel may go: rooftop equipment, hatches,
 // walkways. Points are roof hits in scene coordinates. `auto` marks one found
@@ -22,7 +23,43 @@ export function insidePolygon(x: number, z: number, points: ReadonlyArray<readon
   return inside;
 }
 
-export const zoneHeight = (zone: KeepOutZone) => zone.points.reduce((sum, point) => sum + point[1], 0) / zone.points.length;
+// Zones retain roof-hit heights. Triangulation preserves those local heights
+// on slopes and concave outlines; immutable point arrays can reuse the result.
+const triangleCache = new WeakMap<Vec3[], Vec3[][]>();
+function zoneTriangles(zone: KeepOutZone): Vec3[][] {
+  let triangles = triangleCache.get(zone.points);
+  if (!triangles) {
+    triangles = ShapeUtils.triangulateShape(zone.points.map(([x, , z]) => new Vector2(x, z)), [])
+      .map((indices) => indices.map((index) => zone.points[index]));
+    triangleCache.set(zone.points, triangles);
+  }
+  return triangles;
+}
+
+// Clip a convex polygon to a linear half-space, interpolating all three axes.
+function clip(points: Vec3[], distance: (point: Vec3) => number): Vec3[] {
+  const result: Vec3[] = [];
+  for (let i = 0; i < points.length; i += 1) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    const da = distance(a), db = distance(b);
+    if (da >= 0) result.push(a);
+    if ((da >= 0) !== (db >= 0)) {
+      const t = da / (da - db);
+      result.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2])]);
+    }
+  }
+  return result;
+}
+
+// Only project portions whose local height agrees with this roof plane.
+// A long slope can change elevation by many meters without leaving its roof.
+export function zonePolygonsOnFace(zone: KeepOutZone, face: Pick<RoofFace, 'normal' | 'offset'>): Vec3[][] {
+  const gap = ([x, y, z]: Vec3) => y - planeHeight(face, x, z);
+  return zoneTriangles(zone).map((triangle) => clip(
+    clip(triangle, (point) => ZONE_HEIGHT_TOLERANCE_METERS - gap(point)),
+    (point) => ZONE_HEIGHT_TOLERANCE_METERS + gap(point),
+  )).filter((polygon) => polygon.length >= 3);
+}
 
 const footprint = (zone: KeepOutZone) => zone.points.map(([x, , z]) => [x, z] as const);
 
@@ -57,28 +94,21 @@ function panelCorners(panel: Pick<ConceptPanel, 'position' | 'azimuthDegrees' | 
 export function panelInZones(panel: Pick<ConceptPanel, 'position' | 'azimuthDegrees' | 'tiltDegrees' | 'landscape'>, size: PanelSize, zones: KeepOutZone[]): boolean {
   if (!zones.length) return false;
   const corners = panelCorners(panel, size);
-  return zones.some((zone) => {
-    if (Math.abs(zoneHeight(zone) - panel.position[1]) > ZONE_HEIGHT_TOLERANCE_METERS) return false;
-    const outline = footprint(zone);
-    return [[panel.position[0], panel.position[2]] as [number, number], ...corners].some(([x, z]) => insidePolygon(x, z, outline))
-      || outline.some(([x, z]) => insidePolygon(x, z, corners))
-      || edgesCross(outline, corners);
-  });
-}
-
-// Any edge of one closed polygon crossing an edge of the other (a thin zone
-// can cut through a panel with no corner of either inside the other).
-function edgesCross(a: ReadonlyArray<readonly [number, number]>, b: ReadonlyArray<readonly [number, number]>): boolean {
-  const side = (p: readonly [number, number], q: readonly [number, number], r: readonly [number, number]) =>
-    Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
-  for (let i = 0; i < a.length; i += 1) {
-    const p1 = a[i], p2 = a[(i + 1) % a.length];
-    for (let j = 0; j < b.length; j += 1) {
-      const q1 = b[j], q2 = b[(j + 1) % b.length];
-      if (side(p1, p2, q1) * side(p1, p2, q2) < 0 && side(q1, q2, p1) * side(q1, q2, p2) < 0) return true;
+  const azimuth = panel.azimuthDegrees * Math.PI / 180;
+  const slope = Math.tan(panel.tiltDegrees * Math.PI / 180);
+  // Corners run clockwise in the x/z plane. Clip against all four edges,
+  // including thin crossings with no original vertex inside either polygon.
+  return zones.some((zone) => zoneTriangles(zone).some((triangle) => {
+    let overlap = triangle;
+    for (let i = 0; i < corners.length && overlap.length; i += 1) {
+      const a = corners[i], b = corners[(i + 1) % corners.length];
+      overlap = clip(overlap, ([x, , z]) => (b[1] - a[1]) * (x - a[0]) - (b[0] - a[0]) * (z - a[1]));
     }
-  }
-  return false;
+    if (!overlap.length) return false;
+    const gaps = overlap.map(([x, y, z]) => panel.position[1]
+      - slope * ((x - panel.position[0]) * Math.sin(azimuth) - (z - panel.position[2]) * Math.cos(azimuth)) - y);
+    return Math.min(...gaps) <= ZONE_HEIGHT_TOLERANCE_METERS && Math.max(...gaps) >= -ZONE_HEIGHT_TOLERANCE_METERS;
+  }));
 }
 
 // Zones of at least three points with finite coordinates, from storage or a link.

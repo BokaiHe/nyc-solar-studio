@@ -1,9 +1,10 @@
 import type { ConceptPanel, LatLng, NeighborMesh, RoofModelData } from '@/lib/solar/types';
-import type { KeepOutZone } from './keep-out';
+import { panelInZones, type KeepOutZone } from './keep-out';
+import { DEFAULT_PANEL_SIZE, type PanelSize } from './geometry';
 
 export type Step = 'select' | 'design' | 'results';
 export type BuildingStatus = 'idle' | 'loading' | 'ready' | 'no-model' | 'outside' | 'error';
-export type NoticeKey = 'sharedModelChanged';
+export type NoticeKey = 'sharedModelChanged' | 'keepOutBlocked';
 export type Tool = 'select' | 'add' | 'erase' | 'zone';
 export type SelectMode = 'replace' | 'add' | 'toggle';
 type Position = [number, number, number];
@@ -38,6 +39,8 @@ export type StudioState = {
   step: Step;
   building: Building;
   panels: ConceptPanel[];
+  // Drag positions are a preview until release validates the whole selection.
+  moving: boolean;
   past: HistoryEntry[];
   future: HistoryEntry[];
   selectedIds: number[];
@@ -73,11 +76,12 @@ export type StudioAction =
   | { type: 'generated'; panels: ConceptPanel[]; params: LayoutParams; shading: string; record: boolean }
   | { type: 'clear-panels' }
   | { type: 'add-panel'; panel: Omit<ConceptPanel, 'id'>; minSpacing: number }
-  | { type: 'transform-panels'; ids: number[]; azimuthDelta?: number; toggleLandscape?: boolean }
+  | { type: 'transform-panels'; ids: number[]; azimuthDelta?: number; toggleLandscape?: boolean; panelSize?: PanelSize }
   | { type: 'remove-panels'; ids: number[]; record?: boolean }
   // Snapshot before a drag or erase stroke so the whole gesture undoes at once.
   | { type: 'checkpoint' }
-  | { type: 'move-panels'; positions: Array<[number, Position]> }
+  | { type: 'move-panels'; positions: Array<[number, Position]>; finish?: boolean; panelSize?: PanelSize }
+  | { type: 'cancel-move' }
   | { type: 'select'; ids: number[]; mode: SelectMode }
   | { type: 'undo' }
   | { type: 'redo' }
@@ -100,6 +104,7 @@ export const initialStudioState: StudioState = {
   step: 'select',
   building: { status: 'idle', location: null, label: '', model: null, neighbors: null, neighborStatus: 'idle' },
   panels: [],
+  moving: false,
   past: [],
   future: [],
   selectedIds: [],
@@ -134,7 +139,19 @@ function record(state: StudioState, generated = state.generated): StudioState {
 }
 
 function restore(state: StudioState, entry: HistoryEntry): StudioState {
-  return { ...state, panels: entry.panels, params: { ...state.params, keepOut: entry.keepOut }, generated: entry.generated, selectedIds: [] };
+  return { ...state, panels: entry.panels, moving: false, params: { ...state.params, keepOut: entry.keepOut }, generated: entry.generated, selectedIds: [] };
+}
+
+// Persist the last accepted layout even if the tab closes during a drag.
+export function savedPanels(state: StudioState): ConceptPanel[] {
+  return state.moving ? state.past.at(-1)?.panels ?? state.panels : state.panels;
+}
+
+function cancelMove(state: StudioState): StudioState {
+  const previous = state.past.at(-1);
+  if (!previous) return { ...state, moving: false };
+  // A rejected preview must never become redo-able.
+  return { ...restore(state, previous), past: state.past.slice(0, -1), selectedIds: state.selectedIds };
 }
 
 // Every panel edit that the user can undo goes through here.
@@ -248,13 +265,17 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'transform-panels': {
       const ids = new Set(action.ids);
       if (!ids.size) return state;
-      return commit(state, state.panels.map((panel) => ids.has(panel.id)
+      const panels = state.panels.map((panel) => ids.has(panel.id)
         ? {
           ...panel,
           azimuthDegrees: (((panel.azimuthDegrees + (action.azimuthDelta ?? 0)) % 360) + 360) % 360,
           landscape: action.toggleLandscape ? !panel.landscape : panel.landscape,
         }
-        : panel));
+        : panel);
+      if (panels.some((panel) => ids.has(panel.id) && panelInZones(panel, action.panelSize ?? DEFAULT_PANEL_SIZE, state.params.keepOut))) {
+        return { ...state, notice: 'keepOutBlocked' };
+      }
+      return commit({ ...state, notice: state.notice === 'keepOutBlocked' ? null : state.notice }, panels);
     }
     case 'remove-panels': {
       const ids = new Set(action.ids);
@@ -267,8 +288,14 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return record(state);
     case 'move-panels': {
       const moves = new Map(action.positions);
-      return { ...state, panels: state.panels.map((panel) => moves.has(panel.id) ? { ...panel, position: moves.get(panel.id)! } : panel) };
+      const panels = state.panels.map((panel) => moves.has(panel.id) ? { ...panel, position: moves.get(panel.id)! } : panel);
+      if (action.finish && panels.some((panel) => moves.has(panel.id) && panelInZones(panel, action.panelSize ?? DEFAULT_PANEL_SIZE, state.params.keepOut))) {
+        return { ...cancelMove(state), notice: 'keepOutBlocked' };
+      }
+      return { ...state, panels, moving: !action.finish, notice: state.notice === 'keepOutBlocked' ? null : state.notice };
     }
+    case 'cancel-move':
+      return cancelMove(state);
     case 'select': {
       const current = new Set(action.mode === 'replace' ? [] : state.selectedIds);
       for (const id of action.ids) {
