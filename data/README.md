@@ -1,6 +1,6 @@
 # NYC / TUM model data
 
-The active 3D model route reads `data/processed/nyc-citygml.sqlite`. Build it with `scripts/index-nyc-citygml.py` (see root README).
+The static application loads compressed model and outline tiles from `public/data/nyc/`. The SQLite indexes under `data/processed/` are used offline to build those tiles. Build the CityGML index with `scripts/index-nyc-citygml.py`, then generate tiles as described in the root README.
 
 - Publisher: NYC Open Data, converted and published by TUM.
 - Release: 2017; underlying geometry represents historical surveys.
@@ -12,7 +12,9 @@ The active 3D model route reads `data/processed/nyc-citygml.sqlite`. Build it wi
 - CRS: EPSG:32118, meters. Native surface elevations are retained.
 - Attribution: NYC Open Data / TUM. Consult original NYC usage terms linked by TUM before redistribution.
 
-The index stores original building XML fragments with lossless zlib compression. Runtime parses the selected building's semantic surfaces and triangulates them for rendering. No machine-learning inference is performed.
+The offline index stores original building XML fragments with lossless zlib compression. Tile generation extracts semantic surfaces; the browser loads the resulting geometry and triangulates it for rendering. Building geometry uses the original CityGML surfaces. Rooftop obstacle detection is a separate, optional image-based model.
+
+The building tiles retain the original data providers' rights and terms. See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md); the root MIT code license does not cover these datasets.
 
 Completed index: 1,083,437 buildings; 5,219,201,024 bytes. Checked on 2026-09-08 with exact containment and roof raycasting: Queens BIN 4151176, Flatiron BIN 1016278, One WTC BIN 1088469, Empire State BIN 1015862. Heights remain the original model's values, including modeled rooftop structures.
 

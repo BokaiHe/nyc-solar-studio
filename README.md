@@ -285,3 +285,15 @@ The default recording language is English; set `DEMO_LANG=zh` for Chinese. Raw f
 - Address search: NYC Planning Labs GeoSearch. Climate: PVGIS-ERA5 TMY, European Commission JRC. Grid factor: EPA eGRID2023.
 
 Retain these attributions when sharing the project and follow each dataset's terms of use.
+
+## License
+
+Original application code, preprocessing and training scripts, and original documentation text are available under the [MIT License](LICENSE), copyright 2026 Bokai He.
+
+Building data, imagery and imagery-containing media, model weights, and third-party dependencies are excluded from this grant. See [Third-party notices](THIRD_PARTY_NOTICES.md) for their sources and licensing boundaries. The ONNX model's upstream checkpoint permissions have not been independently cleared; the MIT code license does not grant reuse rights for those weights.
+
+## Development and authorship
+
+Created and maintained by [Bokai He](https://github.com/BokaiHe), with AI-assisted implementation and debugging using Codex. Earlier commits retain their original assistant author identity; subsequent commits use the maintainer's GitHub identity. Git history is preserved.
+
+[Architecture decisions](docs/DECISIONS.md) document how the project evolved. [Acceptance records](docs/ACCEPTANCE.md) record test observations, and the [public release review](docs/PUBLICATION_REVIEW.md) describes the scope and limits of the pre-publication checks.

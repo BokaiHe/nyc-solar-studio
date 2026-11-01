@@ -1,5 +1,7 @@
 # Architecture decisions
 
+This is a chronological decision record. Earlier entries describe superseded implementations. The current static architecture is described in ADR-015 and ADR-016 and in the root README; the live app no longer requires Google API keys or server routes.
+
 ## ADR-001 — Google-first data stack
 
 Use Google 3D Maps, Places and Solar Building Insights so the application can reuse existing globe, search, roof segmentation and energy-estimation capabilities.
