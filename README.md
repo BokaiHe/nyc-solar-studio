@@ -301,7 +301,7 @@ npm run readme:screenshots
   - `docs/demo.mp4`：60 fps，1440 × 900；
   - `docs/demo.webp`：20 fps 动态 WebP，800 px 宽，用于 README。
 - `readme:screenshots` 从视频中抽取截图。
-- 设置 `DEMO_LANG=en` 可以录制英文界面。
+- 默认录制英文界面，设置 `DEMO_LANG=zh` 录制中文界面；原始帧约 1 GB，可用 `DEMO_TMP` 指定存放目录。
 
 ## 局限
 

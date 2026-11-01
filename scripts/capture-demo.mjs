@@ -7,7 +7,8 @@
 //
 // Usage: npm run demo:record -- [local-url]
 // Environment: FFMPEG_PATH, PYTHON (with Pillow), PLAYWRIGHT_CHANNEL (default
-// msedge), DEMO_LANG (zh or en, default zh), DEMO_HEADLESS=1 to hide the
+// msedge), DEMO_LANG (en or zh, default en), DEMO_TMP (where raw frames go,
+// about 1 GB; default the system temp folder), DEMO_HEADLESS=1 to hide the
 // window (headed renders WebGL faster; keep the window uncovered).
 import { chromium, expect } from '@playwright/test';
 import { createWriteStream } from 'node:fs';
@@ -23,7 +24,7 @@ const python = process.env.PYTHON ?? 'python';
 if (spawnSync(ffmpeg, ['-version'], { stdio: 'ignore' }).status !== 0) throw Error('FFmpeg is required. Install it or set FFMPEG_PATH.');
 if (spawnSync(python, ['-c', 'import PIL'], { stdio: 'ignore' }).status !== 0) throw Error('Python with Pillow is required (set PYTHON).');
 
-const lang = process.env.DEMO_LANG === 'en' ? 'en' : 'zh';
+const lang = process.env.DEMO_LANG === 'zh' ? 'zh' : 'en';
 const L = lang === 'zh'
   ? { search: '搜索纽约地址或建筑', start: '设计这个屋顶', basemap: '卫星底图', plan: '2D 俯视', reset: '重置视角', detect: '✦ 自动识别禁装区', generate: '生成阵列', date: '模拟日期', time: '一天中的时间', play: '播放', pause: '暂停', heatmap: '查看逐块年发电表现', results: /^3\s*结果$/ }
   : { search: 'Search NYC addresses or buildings', start: 'Design this roof', basemap: 'Satellite', plan: 'Plan view', reset: 'Reset view', detect: '✦ Detect keep-out areas', generate: 'Generate array', date: 'Simulation date', time: 'Time of day', play: 'Play', pause: 'Pause', heatmap: 'Show annual panel yield', results: /^3\s*Results$/ };
@@ -36,7 +37,10 @@ const PREVIEW_QUALITY = 72;
 const DURATION = 38;
 
 await mkdir('docs', { recursive: true });
-const temporary = await mkdtemp(join(tmpdir(), 'solar-demo-'));
+// Absolute, because FFmpeg reads the frame list relative to its own folder.
+const frameRoot = resolve(process.env.DEMO_TMP ?? tmpdir());
+await mkdir(frameRoot, { recursive: true });
+const temporary = await mkdtemp(join(frameRoot, 'solar-demo-'));
 const headless = process.env.DEMO_HEADLESS === '1';
 const browser = await chromium.launch({
   channel: process.env.PLAYWRIGHT_CHANNEL ?? 'msedge',
@@ -124,7 +128,7 @@ try {
 
   chapter('Generate the array around them');
   await button(L.generate).click();
-  await page.waitForFunction(() => /\b[1-9]\d*\s*(块组件|panels?)/.test(document.querySelector('[data-tour="panel"]')?.textContent ?? ''), null, { timeout: 30000 });
+  await page.waitForFunction(() => /(^|\D)[1-9]\d*\s*(块组件|panels?)/.test(document.querySelector('[data-tour="panel"]')?.textContent ?? ''), null, { timeout: 30000 });
   await at(23);
 
   // Winter solstice from late morning: sunset is near 16:30, so playback

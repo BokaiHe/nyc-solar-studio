@@ -1,14 +1,14 @@
 {
-  "recordedAt": "2026-11-01T22:10:50.780Z",
+  "recordedAt": "2026-11-01T22:43:58.355Z",
   "url": "http://localhost:8090/solar-3d-web/",
-  "language": "zh",
+  "language": "en",
   "durationSeconds": 38,
   "capture": {
     "method": "Chrome DevTools screencast (timestamped frames)",
     "headless": false,
-    "frames": 3142,
-    "capturedSeconds": 37.99,
-    "averageCaptureFps": 82.7
+    "frames": 3131,
+    "capturedSeconds": 37.98,
+    "averageCaptureFps": 82.4
   },
   "outputs": {
     "docs/demo.mp4": "60 fps H.264, 1440×900",
@@ -21,11 +21,11 @@
     },
     {
       "title": "Open the LoD2 roof in 3D with its neighbors",
-      "seconds": 8
+      "seconds": 8.01
     },
     {
       "title": "Aerial basemap and 2D plan view",
-      "seconds": 11.51
+      "seconds": 11.5
     },
     {
       "title": "Detect keep-out areas with the U-Net",
@@ -37,7 +37,7 @@
     },
     {
       "title": "Winter solstice shadows in 3D",
-      "seconds": 23.01
+      "seconds": 23
     },
     {
       "title": "Per-panel annual yield",
@@ -45,7 +45,7 @@
     },
     {
       "title": "Results",
-      "seconds": 32.51
+      "seconds": 32.5
     }
   ]
 }
