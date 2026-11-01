@@ -10,7 +10,7 @@ export const secondaryButtonClass = 'rounded-[10px] bg-fill px-3 py-2 text-[13px
 // Right-hand card on wide screens; a bottom sheet on narrow ones.
 export function SidePanel({ children }: { children: ReactNode }) {
   return (
-    <aside className={`${cardClass} max-h-[46dvh] w-full overflow-y-auto p-4 md:max-h-full md:w-[340px] md:p-5`}>
+    <aside data-tour="panel" className={`${cardClass} max-h-[46dvh] w-full overflow-y-auto p-4 md:max-h-full md:w-[340px] md:p-5`}>
       {children}
     </aside>
   );

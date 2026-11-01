@@ -11,11 +11,13 @@ const TOOLS: Array<{ tool: Tool; icon: string; key: string }> = [
   { tool: 'zone', icon: '⬠', key: 'Z' },
 ];
 
-export function SceneToolbar({ tool, editable, onToolChange, onResetView, onTopView, neighborsAvailable, showNeighbors, onToggleNeighbors, basemapAvailable, showBasemap, onToggleBasemap }: {
+export function SceneToolbar({ tool, editable, onToolChange, onResetView, planView, onTopView, neighborsAvailable, showNeighbors, onToggleNeighbors, basemapAvailable, showBasemap, onToggleBasemap }: {
   tool: Tool;
   editable: boolean;
   onToolChange: (tool: Tool) => void;
   onResetView: () => void;
+  // The flat plan view is on; the button turns it off again.
+  planView: boolean;
   onTopView: () => void;
   neighborsAvailable: boolean;
   showNeighbors: boolean;
@@ -29,7 +31,7 @@ export function SceneToolbar({ tool, editable, onToolChange, onResetView, onTopV
   // toggles. Labels hide on phones, where the icons carry the meaning.
   const toggle = (on: boolean) => `flex items-center gap-2 rounded-[11px] px-3 py-2 text-[15px] font-medium transition hover:bg-fill active:scale-[0.97] ${on ? 'text-label' : 'text-label-secondary'}`;
   return (
-    <div className="pointer-events-auto flex flex-wrap items-center gap-2 self-start">
+    <div data-tour="toolbar" className="pointer-events-auto flex flex-wrap items-center gap-2 self-start">
       {editable && (
         <div role="toolbar" aria-label={t.tools.label} className={`${pillClass} p-1`}>
           <div className="flex gap-0.5 rounded-[12px] bg-fill p-[3px]">
@@ -54,8 +56,8 @@ export function SceneToolbar({ tool, editable, onToolChange, onResetView, onTopV
         <button type="button" title={t.tools.resetView} onClick={onResetView} className={toggle(true)}>
           <span className="text-[17px] leading-none text-label-secondary">⟲</span><span className="hidden sm:inline">{t.tools.resetView}</span>
         </button>
-        <button type="button" title={t.tools.topView} onClick={onTopView} className={toggle(true)}>
-          <span className="text-[17px] leading-none text-label-secondary">⊙</span><span className="hidden sm:inline">{t.tools.topView}</span>
+        <button type="button" aria-pressed={planView} title={t.tools.topView} onClick={onTopView} className={`${toggle(true)} ${planView ? 'bg-accent/10' : ''}`}>
+          <span className={`text-[17px] leading-none ${planView ? 'text-accent' : 'text-label-secondary'}`}>⊙</span><span className="hidden sm:inline">{t.tools.topView}</span>
         </button>
         {basemapAvailable && (
           <button type="button" aria-pressed={showBasemap} title={t.tools.basemap} onClick={onToggleBasemap} className={toggle(showBasemap)}>
@@ -74,12 +76,12 @@ export function SceneToolbar({ tool, editable, onToolChange, onResetView, onTopV
   );
 }
 
-export function ToolHint({ tool, editable }: { tool: Tool; editable: boolean }) {
+export function ToolHint({ tool, editable, planView }: { tool: Tool; editable: boolean; planView: boolean }) {
   const { t } = useI18n();
   const hint = editable ? { select: t.tools.selectHint, add: t.tools.addHint, erase: t.tools.eraseHint, zone: t.tools.zoneHint }[tool] : null;
   return (
     <p className={`${pillClass} hidden px-3.5 py-2 text-center text-[13px] text-label-secondary md:block`}>
-      {hint && <>{hint} · </>}{t.tools.orbitHint}
+      {hint && <>{hint} · </>}{planView ? t.tools.planHint : t.tools.orbitHint}
     </p>
   );
 }

@@ -20,7 +20,7 @@ export function SunBar({ dateIso, onDateChange, minuteOfDay, onMinuteChange, pla
 }) {
   const { t } = useI18n();
   return (
-    <section className={`${pillClass} flex w-full max-w-3xl flex-col gap-1.5 px-4 py-2.5`}>
+    <section data-tour="sun" className={`${pillClass} flex w-full max-w-3xl flex-col gap-1.5 px-4 py-2.5`}>
       <div className="flex flex-wrap items-center gap-3">
         <input aria-label={t.sun.date} type="date" value={dateIso} onChange={(event) => event.target.value && onDateChange(event.target.value)} className="rounded-[8px] bg-fill px-2.5 py-1 text-[13px] tabular-nums text-label outline-none" />
         <button type="button" onClick={() => onPlayingChange(!playing)} className="grid h-8 w-8 place-items-center rounded-full bg-fill text-[12px] text-label transition hover:bg-fill-strong active:scale-95" aria-label={playing ? t.sun.pause : t.sun.play}>

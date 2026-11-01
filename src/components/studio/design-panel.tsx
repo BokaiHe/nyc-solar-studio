@@ -3,14 +3,20 @@
 import { useState, type Dispatch, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n';
 import type { LayoutResult } from '@/lib/design/auto-layout';
+import { zoneArea } from '@/lib/design/keep-out';
 import { isUntouchedLayout, sameParams, type LayoutParams, type StudioAction, type StudioState } from '@/lib/design/state';
 import { Eyebrow, GroupTitle, PanelTitle, primaryButtonClass, secondaryButtonClass, SidePanel, SliderField, Switch } from './ui';
 
-export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBusy, neighborStatus, neighborCount, layoutResult, onNext, optimizer, workspace }: {
+export function DesignPanel({ state, capacityKw, dispatch, onGenerate, onHighlightZone, onDetectZones, detect, layoutBusy, neighborStatus, neighborCount, layoutResult, onNext, optimizer, workspace }: {
   state: StudioState;
   capacityKw: number;
   dispatch: Dispatch<StudioAction>;
   onGenerate: () => void;
+  // Outlines a keep-out area in the scene while its row is hovered.
+  onHighlightZone: (id: number | null) => void;
+  // Finds keep-out areas in the aerial imagery; null until the imagery loads.
+  onDetectZones: (() => void) | null;
+  detect: { status: 'idle' | 'running' | 'done'; count: number; model: boolean };
   layoutBusy: boolean;
   neighborStatus: 'idle' | 'loading' | 'ready' | 'error';
   neighborCount: number;
@@ -85,7 +91,10 @@ export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBus
             <div className="mt-4 rounded-[14px] bg-accent/8 p-3">
               <p className="text-[15px] font-semibold">{t.design.emptyTitle}</p>
               <p className="mt-1 text-[13px] leading-5 text-label-secondary">{t.design.emptyBody}</p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
+              <button type="button" disabled={!onDetectZones || detect.status === 'running'} onClick={() => onDetectZones?.()} className={`${secondaryButtonClass} mt-3 w-full py-2.5`}>
+                {detect.status === 'running' ? t.design.detecting : t.design.detectZonesLong}
+              </button>
+              <div className="mt-2 grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => dispatch({ type: 'set-tool', tool: 'zone' })} className={`${secondaryButtonClass} py-2.5`}>
                   ⬠ {t.design.drawZones}
                 </button>
@@ -119,16 +128,53 @@ export function DesignPanel({ state, capacityKw, dispatch, onGenerate, layoutBus
             </div>
           )}
 
-          <div className="mt-4 rounded-[14px] bg-fill/60 p-3 text-[12px] leading-5">
+          <div data-tour="zones" className="mt-4 rounded-[14px] bg-fill/60 p-3 text-[12px] leading-5">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[13px] font-semibold">{t.design.zones(params.keepOut.length)}</span>
-              {params.keepOut.length > 0 && (
-                <button type="button" onClick={() => dispatch({ type: 'set-params', params: { keepOut: [] } })} className="text-[13px] font-medium text-destructive">
-                  {t.design.clearZones}
+              <span className="flex items-center gap-3">
+                <button type="button" disabled={!onDetectZones || detect.status === 'running'} title={onDetectZones ? undefined : t.design.detectUnavailable} onClick={() => onDetectZones?.()} className="text-[13px] font-medium text-accent disabled:text-label-tertiary">
+                  {detect.status === 'running' ? t.design.detecting : t.design.detectZones}
                 </button>
-              )}
+                {params.keepOut.length > 0 && (
+                  <button type="button" onClick={() => dispatch({ type: 'set-params', params: { keepOut: [] } })} className="text-[13px] font-medium text-destructive">
+                    {t.design.clearZones}
+                  </button>
+                )}
+              </span>
             </div>
-            <p className="mt-1 text-label-secondary">{t.design.zonesHint}</p>
+            {detect.status === 'done' && <p className="mt-1 text-[12px] leading-5 text-accent">{t.design.detectFound(detect.count, detect.model)}</p>}
+            {params.keepOut.length > 0 && (
+              <ul className="mt-2 flex flex-col gap-1">
+                {params.keepOut.map((zone, index) => (
+                  <li
+                    key={zone.id}
+                    onMouseEnter={() => onHighlightZone(zone.id)}
+                    onMouseLeave={() => onHighlightZone(null)}
+                    className="flex items-center justify-between gap-2 rounded-[9px] bg-white/70 py-1 pl-2.5 pr-1 text-[13px]"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
+                      {t.design.zoneName(index + 1)}
+                      {zone.auto && <span className="rounded-[5px] bg-accent/12 px-1.5 text-[11px] font-medium text-accent">{t.design.autoTag}</span>}
+                      <span className="tabular-nums text-label-secondary">{t.design.zoneArea(zoneArea(zone).toFixed(1))}</span>
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={t.design.removeZone(index + 1)}
+                      title={t.design.removeZone(index + 1)}
+                      onClick={() => {
+                        onHighlightZone(null);
+                        dispatch({ type: 'remove-zone', id: zone.id });
+                      }}
+                      className="grid h-7 w-7 place-items-center rounded-full text-[15px] text-label-secondary transition hover:bg-destructive/10 hover:text-destructive active:scale-95"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-label-secondary">{t.design.zonesHint}</p>
           </div>
 
           {settingsPending ? (

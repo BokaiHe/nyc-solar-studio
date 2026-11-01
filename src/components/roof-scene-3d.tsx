@@ -1,7 +1,7 @@
 'use client';
 
 import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
-import { Grid, Line, OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import { Grid, Line, OrbitControls, OrthographicCamera, PerspectiveCamera } from '@react-three/drei';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { YIELD_COLORS, yieldBand } from '@/lib/design/workspace';
@@ -28,6 +28,8 @@ type RoofScene3DProps = {
   // Resolves where a new panel would go for a roof hit, snapped and checked for overlap.
   planPanel: (point: Position, normal: Position) => PanelPlan;
   zones: KeepOutZone[];
+  // A keep-out area picked out from the side panel's list.
+  highlightedZone: number | null;
   // Satellite imagery laid on the ground and draped over the roof; null hides it.
   basemap: Basemap | null;
   // Surrounding buildings, drawn as context and casting shadows; null hides them.
@@ -398,7 +400,7 @@ type Gesture =
   | { kind: 'anchor'; zone: KeepOutZone; index: number };
 
 function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null) => void; setCursor: (cursor: string) => void }) {
-  const { model, panels, panelSize, selectedIds, sun, tool, editable, view, planPanel, zones, basemap, neighbors, onAddPanel, onAddZone, onRemoveZone, onUpdateZone, onSelect, onCheckpoint, onMovePanels, onCancelGesture, onRemovePanels, setMarquee, setCursor } = props;
+  const { model, panels, panelSize, selectedIds, sun, tool, editable, view, planPanel, zones, highlightedZone, basemap, neighbors, onAddPanel, onAddZone, onRemoveZone, onUpdateZone, onSelect, onCheckpoint, onMovePanels, onCancelGesture, onRemovePanels, setMarquee, setCursor } = props;
   const { camera, gl, raycaster } = useThree();
   const viewport = useThree((state) => state.size);
   // Portrait screens show less width, so back the camera off to keep the roof in frame.
@@ -486,15 +488,19 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
     -Math.cos(azimuth) * Math.cos(altitude) * shadowSize,
   ];
 
-  // Camera commands: frame the roof obliquely, or look straight down on it.
+  // Camera commands: frame the roof obliquely, or show it as a flat plan,
+  // north up, with an orthographic camera so edges can be traced exactly.
+  const plan = view.kind === 'top';
+  // Pixels per meter that fit the roof on screen, fixed per command so the
+  // wheel zoom is not undone by a resize. The plan camera mounts with it;
+  // the controls only reach that camera after this render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const planZoom = useMemo(() => viewport.height / (footprint * fit * 1.2), [footprint, view]);
   useEffect(() => {
     const controls = controlsRef.current;
-    if (!controls) return;
+    if (!controls || plan) return;
     const reach = footprint * fit;
-    const position = view.kind === 'top'
-      ? [0, roofTop + reach * 1.6, 0.01]
-      : [reach * 1.1, roofTop + reach * 1.1, reach * 1.3];
-    controls.object.position.set(position[0], position[1], position[2]);
+    controls.object.position.set(reach * 1.1, roofTop + reach * 1.1, reach * 1.3);
     controls.target.set(0, roofTop, 0);
     controls.update();
     // Refit only on explicit commands, not on every resize.
@@ -854,8 +860,24 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
       <ambientLight intensity={0.85} />
       <directionalLight position={lightPosition} intensity={sun?.daylight ? 2.1 : 0.25} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-camera-left={-shadowSize} shadow-camera-right={shadowSize} shadow-camera-top={shadowSize} shadow-camera-bottom={-shadowSize} shadow-camera-far={shadowSize * 6} shadow-normalBias={0.15} shadow-bias={-0.0001} />
       {/* Design happens on the roof, so frame the roof footprint, not the whole tower. */}
-      <PerspectiveCamera makeDefault position={[footprint * initialFit * 1.1, roofTop + footprint * initialFit * 1.1, footprint * initialFit * 1.3]} fov={40} near={0.1} far={Math.max(size * 10, 1500)} />
-      <OrbitControls ref={controlsRef as never} makeDefault target={[0, roofTop, 0]} minDistance={Math.max(4, footprint * 0.12)} maxDistance={size * 4} maxPolarAngle={Math.PI * 0.49} />
+      {plan ? (
+        <OrthographicCamera makeDefault position={[0, roofTop + size * 2, 0.001]} zoom={planZoom} near={0.1} far={Math.max(size * 10, 1500)} />
+      ) : (
+        <PerspectiveCamera makeDefault position={[footprint * initialFit * 1.1, roofTop + footprint * initialFit * 1.1, footprint * initialFit * 1.3]} fov={40} near={0.1} far={Math.max(size * 10, 1500)} />
+      )}
+      {/* The plan view only pans and zooms: right-drag pans, the wheel zooms. */}
+      <OrbitControls
+        key={plan ? 'plan' : 'orbit'}
+        ref={controlsRef as never}
+        makeDefault
+        target={[0, roofTop, 0]}
+        enableRotate={!plan}
+        minZoom={plan ? viewport.height / (footprint * 6) : 0}
+        maxZoom={plan ? viewport.height / 3 : Infinity}
+        minDistance={Math.max(4, footprint * 0.12)}
+        maxDistance={size * 4}
+        maxPolarAngle={Math.PI * 0.49}
+      />
       <mesh ref={roofRef} geometry={roofGeometry} castShadow receiveShadow onPointerDown={onRoofDown} onPointerMove={onRoofMove} onPointerOut={() => { setGhost(null); setZoneCursor(null); }} onClick={onRoofClick} onDoubleClick={() => { if (editable && tool === 'zone') finishZone(zoneDraft); }}>
         <meshStandardMaterial key={basemapTexture ? 'imagery' : 'plain'} color={basemapTexture ? '#ffffff' : '#e2e8f0'} map={basemapTexture} roughness={0.78} metalness={0.02} side={THREE.DoubleSide} flatShading />
       </mesh>
@@ -878,7 +900,7 @@ function Scene(props: RoofScene3DProps & { setMarquee: (marquee: Marquee | null)
           key={zone.id}
           zone={zone}
           erasing={editable && tool === 'erase'}
-          highlighted={editable && tool === 'erase' && hoveredZone === zone.id}
+          highlighted={(editable && tool === 'erase' && hoveredZone === zone.id) || highlightedZone === zone.id}
           onErase={onRemoveZone}
           onHover={setHoveredZone}
         />

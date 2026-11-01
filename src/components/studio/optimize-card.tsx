@@ -26,7 +26,7 @@ export function OptimizeCard({ objective, onObjectiveChange, state, panelWatts, 
   const baseline = result?.current.yieldIndex ?? 0;
 
   return (
-    <section className="mt-4">
+    <section data-tour="optimizer" className="mt-4">
       <GroupTitle>{t.optimize.title}</GroupTitle>
       <div className="mt-2 rounded-[14px] bg-fill/60 p-3">
         <div className="flex rounded-[11px] bg-fill p-[2px]" role="radiogroup" aria-label={t.optimize.title}>

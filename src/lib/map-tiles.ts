@@ -1,10 +1,13 @@
 import type { LatLng } from '@/lib/solar/types';
 
-// New York State orthoimagery (NYS ITS Geospatial Services, latest statewide
-// flight): free, keyless and served with CORS, so the static site can use it
-// both as the map's satellite layer and under the 3D scene.
-export const ORTHO_SERVICE = 'https://orthos.its.ny.gov/arcgis/rest/services/wms/Latest/MapServer';
-export const ORTHO_ATTRIBUTION = 'Imagery © NYS ITS Geospatial Services';
+// New York State orthoimagery (NYS ITS Geospatial Services): free, keyless and
+// served with CORS, so the static site can use it both as the map's satellite
+// layer and under the 3D scene. The 2014 flight matches the 2014 survey behind
+// the NYC LoD2 models, so buildings built or torn down since then agree with
+// the imagery; it is also leaf-on with short shadows, unlike the winter
+// flights of later years.
+export const ORTHO_SERVICE = 'https://orthos.its.ny.gov/arcgis/rest/services/wms/2014/MapServer';
+export const ORTHO_ATTRIBUTION = 'Imagery © NYS ITS Geospatial Services (2014)';
 
 // The map's raster source: MapLibre fills in each tile's Web Mercator bounds.
 export const ORTHO_TILE_URL = `${ORTHO_SERVICE}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=512,512&format=jpg&f=image`;

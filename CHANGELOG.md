@@ -6,6 +6,10 @@ All notable changes will be documented in this file.
 
 ### Added
 
+- Detect keep-out areas: a U-Net trained on 2014 orthoimagery with labels from the 2017 NYC LiDAR (rooftop objects rising 0.45 m+ above the roof) runs in the browser through ONNX Runtime Web in a Web Worker, and its marks on flat roofs become rectangles tagged Auto. They can be removed from a list in the side panel or reshaped; detecting again replaces only the untouched ones, as one undo step. The model (8 MB) and runtime (15 MB) load on first use; a color-anomaly rule stands in if they cannot. Dataset building, AutoDL training, evaluation and export scripts live in `ml/`.
+- Keep-out list in the side panel with each area's size, hover highlighting and per-area delete.
+- 2D plan view: an orthographic, north-up view of the roof for tracing keep-out areas; Plan view toggles it.
+- Guided tour, offered on a first visit and from the ? button: on P.S. 321 in Brooklyn it picks the building, marks its bulkheads, generates the array, shows winter shadows, the best-layout search and the results.
 - Keep-out areas: a pen-style Keep-out tool (Z) outlines rooftop equipment, hatches or walkways with anchor points (click the first anchor or press Enter to close, Shift for 45°, drag an anchor to reshape, Alt-click to remove one). Auto layout and the best-layout search leave them and the setback around them clear, hand-placed panels cannot go there, the erase tool removes them, and adding, changing or removing one is undoable. They are saved in drafts and share links (`k`).
 - Satellite basemap in 3D: Google Map Tiles imagery around the building on the ground and draped over the roof, so rooftop equipment is visible while outlining keep-out areas; off by default, toggle with Satellite. Tall buildings can show a few meters of offset because the imagery is not a true orthophoto.
 - Per-panel annual yield colors on a fixed ideal-module reference scale, with annual kWh, tilt and azimuth for the selected module.
@@ -14,7 +18,7 @@ All notable changes will be documented in this file.
 
 ### Changed
 
-- Run as a static site on GitHub Pages with no server or API keys: buildings ship as pre-cut gzip tiles in `public/data/nyc` (`npm run data:build-tiles`), looked up and turned into models and neighbor occluders in the browser. The map is MapLibre over NYS ITS orthoimagery (also used under the 3D scene), address search uses NYC Planning Labs GeoSearch, and Google Maps, Places, Map Tiles and Solar are removed; the module defaults to 400 W and CO₂ uses the EPA eGRID2023 NYCW factor. A Pages workflow exports and deploys the site.
+- Run as a static site on GitHub Pages with no server or API keys: buildings ship as pre-cut gzip tiles in `public/data/nyc` (`npm run data:build-tiles`), looked up and turned into models and neighbor occluders in the browser. The map is MapLibre over NYS ITS 2014 orthoimagery, the same year as the models (also used under the 3D scene), address search uses NYC Planning Labs GeoSearch, and Google Maps, Places, Map Tiles and Solar are removed; the module defaults to 400 W and CO₂ uses the EPA eGRID2023 NYCW factor. A Pages workflow exports and deploys the site.
 - A roof now opens empty with a prompt to outline keep-out areas first, then generate the array; generated arrays still follow later setting and keep-out changes until edited by hand.
 - Editing tools and view toggles sit in a larger toolbar along the top; floating panels are more opaque so text stays legible over satellite imagery.
 - The results page explains its basis: whether keep-out areas were deducted, that annual energy uses New York's typical weather year independent of the sun bar (with a PVWatts-equivalent range, as ERA5 reads 5–8% sunnier), what the sun bar shows, and the model, module and loss assumptions.

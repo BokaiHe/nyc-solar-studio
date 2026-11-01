@@ -10,3 +10,9 @@ coverage/
 data/raw/
 data/processed/*.sqlite*
 tsconfig.tsbuildinfo
+
+# Rooftop obstacle model: local venv, generated datasets and runs
+ml/.venv/
+ml/**/__pycache__/
+data/ml/
+public/ort/

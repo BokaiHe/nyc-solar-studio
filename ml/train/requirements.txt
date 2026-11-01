@@ -1,0 +1,8 @@
+# PyTorch comes with the AutoDL image; install it separately elsewhere.
+segmentation-models-pytorch>=0.3.4
+numpy
+pillow
+scipy
+onnx
+onnxruntime
+onnxconverter-common

@@ -65,6 +65,8 @@ export type StudioAction =
   | { type: 'set-tool'; tool: Tool }
   | { type: 'set-params'; params: Partial<LayoutParams> }
   | { type: 'add-zone'; points: Position[] }
+  // Swaps the previous detection's areas for a new set, as one undo step.
+  | { type: 'replace-auto-zones'; zones: Position[][] }
   | { type: 'remove-zone'; id: number }
   | { type: 'update-zone'; id: number; points: Position[] }
   // `record: false` replaces an untouched generated layout without a new undo step.
@@ -210,9 +212,18 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       const recorded = record(state);
       return { ...recorded, params: { ...state.params, keepOut: [...state.params.keepOut, { id, points: action.points }] } };
     }
+    case 'replace-auto-zones': {
+      const kept = state.params.keepOut.filter((zone) => !zone.auto);
+      if (!action.zones.length && kept.length === state.params.keepOut.length) return state;
+      let id = state.params.keepOut.reduce((max, zone) => Math.max(max, zone.id), 0);
+      const found = action.zones.map((points) => ({ id: (id += 1), points, auto: true }));
+      const recorded = record(state);
+      return { ...recorded, params: { ...state.params, keepOut: [...kept, ...found] } };
+    }
     case 'update-zone': {
       const recorded = record(state);
-      return { ...recorded, params: { ...state.params, keepOut: state.params.keepOut.map((zone) => (zone.id === action.id ? { ...zone, points: action.points } : zone)) } };
+      // A reshaped area is the user's own from then on.
+      return { ...recorded, params: { ...state.params, keepOut: state.params.keepOut.map((zone) => (zone.id === action.id ? { id: zone.id, points: action.points } : zone)) } };
     }
     case 'remove-zone': {
       if (!state.params.keepOut.some((zone) => zone.id === action.id)) return state;

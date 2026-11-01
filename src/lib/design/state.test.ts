@@ -137,6 +137,17 @@ describe('studioReducer', () => {
     expect(stale.building.neighborStatus).toBe('loading');
   });
 
+  it('replaces detected keep-out areas on a new detection but keeps drawn and reshaped ones', () => {
+    const square = (x: number): Array<[number, number, number]> => [[x, 5, 0], [x + 2, 5, 0], [x + 2, 5, 2], [x, 5, 2]];
+    const detected = run([...loaded, { type: 'add-zone', points: square(0) }, { type: 'replace-auto-zones', zones: [square(10), square(20)] }]);
+    expect(detected.params.keepOut.map((zone) => [zone.id, !!zone.auto])).toEqual([[1, false], [2, true], [3, true]]);
+
+    const reshaped = run([{ type: 'update-zone', id: 2, points: square(11) }, { type: 'replace-auto-zones', zones: [square(30)] }], detected);
+    expect(reshaped.params.keepOut.map((zone) => [zone.id, !!zone.auto])).toEqual([[1, false], [2, false], [4, true]]);
+    // One undo step per detection.
+    expect(run([{ type: 'undo' }], reshaped).params.keepOut).toHaveLength(3);
+  });
+
   it('undoes keep-out areas together with the array they replaced', () => {
     const square: Array<[number, number, number]> = [[0, 5, 0], [2, 5, 0], [2, 5, 2], [0, 5, 2]];
     const generated = run([...loaded, { type: 'generated', panels: [panel(1, 0), panel(2, 3)], params: DEFAULT_PARAMS, shading: 'self', record: true }]);

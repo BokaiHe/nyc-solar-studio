@@ -2,9 +2,10 @@ import type { ConceptPanel } from '@/lib/solar/types';
 import type { PanelSize } from './geometry';
 import type { Vec3 } from './roof-faces';
 
-// An area of the roof drawn by the user where no panel may go: rooftop
-// equipment, hatches, walkways. Points are roof hits in scene coordinates.
-export type KeepOutZone = { id: number; points: Vec3[] };
+// An area of the roof where no panel may go: rooftop equipment, hatches,
+// walkways. Points are roof hits in scene coordinates. `auto` marks one found
+// in the imagery and not edited since; detecting again replaces those.
+export type KeepOutZone = { id: number; points: Vec3[]; auto?: boolean };
 
 // A zone applies to roof surfaces within this height of where it was drawn,
 // so a zone on a podium does not also clear the tower roof above it.
@@ -24,6 +25,18 @@ export function insidePolygon(x: number, z: number, points: ReadonlyArray<readon
 export const zoneHeight = (zone: KeepOutZone) => zone.points.reduce((sum, point) => sum + point[1], 0) / zone.points.length;
 
 const footprint = (zone: KeepOutZone) => zone.points.map(([x, , z]) => [x, z] as const);
+
+// Plan area in square meters (shoelace formula).
+export function zoneArea(zone: KeepOutZone): number {
+  const points = footprint(zone);
+  let twice = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const [x1, z1] = points[index];
+    const [x2, z2] = points[(index + 1) % points.length];
+    twice += x1 * z2 - x2 * z1;
+  }
+  return Math.abs(twice) / 2;
+}
 
 // Horizontal corners of a panel's footprint.
 function panelCorners(panel: Pick<ConceptPanel, 'position' | 'azimuthDegrees' | 'tiltDegrees' | 'landscape'>, size: PanelSize): Array<[number, number]> {

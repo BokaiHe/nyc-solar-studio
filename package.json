@@ -16,13 +16,16 @@
     "data:build-footprints": "node scripts/index-nyc-footprints.mjs",
     "data:build-climate": "node scripts/build-nyc-climate.mjs",
     "data:build-coverage": "node scripts/build-coverage.mjs",
-    "data:build-tiles": "node scripts/build-static-tiles.mts"
+    "data:build-tiles": "node scripts/build-static-tiles.mts",
+    "predev": "node scripts/copy-ort-wasm.mjs",
+    "prebuild": "node scripts/copy-ort-wasm.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
     "maplibre-gl": "^5.24.0",
     "next": "16.3.3",
+    "onnxruntime-web": "^1.31.1",
     "proj4": "^2.21.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -30,7 +33,6 @@
     "three": "^0.185.1"
   },
   "devDependencies": {
-    "7zip-bin": "^5.2.0",
     "@tailwindcss/postcss": "4.3.3",
     "@types/geojson": "^7946.0.16",
     "@types/node": "26.4.0",
@@ -39,6 +41,7 @@
     "@types/react-dom": "19.2.5",
     "@types/suncalc": "1.9.2",
     "@types/three": "^0.185.4",
+    "7zip-bin": "^5.2.0",
     "eslint": "9.39.5",
     "eslint-config-next": "16.3.3",
     "fast-xml-parser": "^5.11.1",

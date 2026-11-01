@@ -10,10 +10,13 @@ import { estimateDesignEnergy } from '@/lib/design/energy';
 import { DRAFT_KEY, emptyComparisons, parseDraft, snapshot, type Comparisons, type Draft } from '@/lib/design/workspace';
 import { DEFAULT_PANEL_SIZE, DEFAULT_PANEL_WATTS, FLAT_ROOF_DEGREES, panelCenter } from '@/lib/design/geometry';
 import { panelClear } from '@/lib/design/clearance';
+import { detectObstacles } from '@/lib/design/detect-obstacles';
+import { roofCrop, runObstacleModel } from '@/lib/design/obstacle-model';
 import { panelInZones } from '@/lib/design/keep-out';
 import { collides, rowPanelIds, similarPanelIds, snapToArray } from '@/lib/design/panel-ops';
 import { facingAzimuth, type Vec3 } from '@/lib/design/roof-faces';
 import { encodeSharedDesign, parseSharedDesign, type SharedDesign } from '@/lib/design/share';
+import { TOUR_BUILDING, TOUR_SEEN_KEY, TOUR_STEPS, TOUR_ZONES } from '@/lib/design/tour';
 import type { LayoutOption, Objective } from '@/lib/design/optimizer';
 import type { LayoutMessage, LayoutRequest } from '@/lib/design/layout.worker';
 import type { OptimizerMessage, OptimizerRequest } from '@/lib/design/optimizer.worker';
@@ -35,6 +38,7 @@ import { SelectPanel } from './select-panel';
 import { SelectionBar } from './selection-bar';
 import { StepNav } from './step-nav';
 import { SunBar } from './sun-bar';
+import { TourOverlay } from './tour-overlay';
 import { WorkspaceTools, type ComparisonMetrics } from './workspace-tools';
 import { cardClass, pillClass } from './ui';
 
@@ -71,6 +75,8 @@ export function SolarStudio() {
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [layoutResult, setLayoutResult] = useState<Omit<LayoutResult, 'panels'> | null>(null);
   const [view, setView] = useState<ViewCommand>({ kind: 'reset', nonce: 0 });
+  // A keep-out area hovered in the side panel's list, outlined in the scene.
+  const [highlightedZone, setHighlightedZone] = useState<number | null>(null);
   const [showNeighbors, setShowNeighbors] = useState(true);
   const [loadedBasemap, setLoadedBasemap] = useState<{ buildingId: string; basemap: Basemap } | null>(null);
   const [showBasemap, setShowBasemap] = useState(false);
@@ -78,6 +84,13 @@ export function SolarStudio() {
   const [outlinesVisible, setOutlinesVisible] = useState(false);
   const [objective, setObjective] = useState<Objective>('max-total');
   const [optimizer, setOptimizer] = useState<(OptimizerState & { base?: LayoutParams })>({ status: 'idle' });
+  // The last keep-out detection, for the building it ran on.
+  // `model` says whether the trained model ran or the color rule stood in.
+  const [detection, setDetection] = useState<{ buildingId: string; status: 'running' | 'done'; count: number; model: boolean } | null>(null);
+  // Runs the obstacle model; created on the first detection.
+  const obstacleWorkerRef = useRef<Worker | null>(null);
+  // The guided tour's step, or null when it is closed.
+  const [tourIndex, setTourIndex] = useState<number | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const layoutWorkerRef = useRef<Worker | null>(null);
   const layoutRequestRef = useRef(0);
@@ -182,6 +195,9 @@ export function SolarStudio() {
     const timer = window.setTimeout(() => {
       try { setDraftOffer(parseDraft(localStorage.getItem(DRAFT_KEY))); }
       catch { setSaveStatus('error'); }
+      // A first visit opens the tour's welcome card; shared links go straight to the design.
+      try { if (!localStorage.getItem(TOUR_SEEN_KEY)) setTourIndex(0); }
+      catch { /* storage unavailable: the Guide button still opens it */ }
     }, 0);
     return () => window.clearTimeout(timer);
   }, [shared]);
@@ -425,6 +441,7 @@ export function SolarStudio() {
 
   useEffect(() => () => {
     workerRef.current?.terminate();
+    obstacleWorkerRef.current?.terminate();
     stopLayoutWorker();
   }, [stopLayoutWorker]);
 
@@ -497,6 +514,74 @@ export function SolarStudio() {
     try { localStorage.removeItem(DRAFT_KEY); } catch { setSaveStatus('error'); }
   }, []);
 
+  // Finds rooftop equipment in the aerial imagery with the trained model (or,
+  // if it cannot load, the color rule) and marks it as keep-out areas, then
+  // shows the plan view over the imagery so they can be checked.
+  const detectZones = useCallback(async () => {
+    const buildingId = model?.nycBuildingId;
+    if (!basemap || !layoutContext || !buildingId) return;
+    const request = requestRef.current;
+    const kept = params.keepOut.filter((zone) => !zone.auto);
+    setDetection({ buildingId, status: 'running', count: 0, model: true });
+    let zones;
+    let usedModel = true;
+    try {
+      const crop = roofCrop(basemap, layoutContext.faces);
+      if (!crop) throw new Error('No flat roof');
+      obstacleWorkerRef.current ??= new Worker(new URL('../../lib/design/obstacle.worker.ts', import.meta.url), { type: 'module' });
+      zones = detectObstacles(crop, layoutContext.faces, kept, await runObstacleModel(obstacleWorkerRef.current, crop, BASE_PATH));
+    } catch {
+      usedModel = false;
+      const { canvas, minX, maxX, minZ, maxZ } = basemap;
+      const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height);
+      zones = detectObstacles({ width: canvas.width, height: canvas.height, data: pixels.data, minX, maxX, minZ, maxZ }, layoutContext.faces, kept);
+    }
+    // Another building opened meanwhile.
+    if (requestRef.current !== request) return;
+    dispatch({ type: 'replace-auto-zones', zones });
+    setDetection({ buildingId, status: 'done', count: zones.length, model: usedModel });
+    setShowBasemap(true);
+    setView((current) => (current.kind === 'top' ? current : { kind: 'top', nonce: current.nonce + 1 }));
+  }, [basemap, layoutContext, model, params.keepOut]);
+  const detect = detection && detection.buildingId === model?.nycBuildingId ? detection : { status: 'idle' as const, count: 0, model: true };
+
+  const closeTour = useCallback(() => {
+    setTourIndex(null);
+    try { localStorage.setItem(TOUR_SEEN_KEY, '1'); } catch { /* shown again next visit */ }
+  }, []);
+
+  // Each step of the tour is performed on the example building as it opens.
+  const advanceTour = useCallback(() => {
+    if (tourIndex === null) return;
+    const next = tourIndex + 1;
+    const id = TOUR_STEPS[next]?.id;
+    if (id === 'search') {
+      void loadBuilding(TOUR_BUILDING.location, t.tour.place, undefined, TOUR_BUILDING.id);
+    } else if (id === 'design') {
+      dispatch({ type: 'set-step', step: 'design' });
+      dispatch({ type: 'set-tool', tool: 'select' });
+      setShowBasemap(true);
+      setView((current) => ({ kind: 'top', nonce: current.nonce + 1 }));
+    } else if (id === 'zones') {
+      if (!params.keepOut.length) for (const points of TOUR_ZONES) dispatch({ type: 'add-zone', points });
+    } else if (id === 'generate') {
+      generate(true);
+    } else if (id === 'sun') {
+      setView((current) => ({ kind: 'reset', nonce: current.nonce + 1 }));
+      setDateIso((current) => `${current.slice(0, 4)}-12-21`);
+      setMinuteOfDay(14 * 60 + 30);
+    } else if (id === 'results') {
+      dispatch({ type: 'set-step', step: 'results' });
+    }
+    setTourIndex(next);
+  }, [generate, loadBuilding, params.keepOut.length, t, tourIndex]);
+
+  const tourStep = tourIndex === null ? null : TOUR_STEPS[tourIndex].id;
+  const tourReady = tourStep === 'search' || tourStep === 'building' ? building.status === 'ready' && model?.nycBuildingId === TOUR_BUILDING.id
+    : tourStep === 'zones' ? params.keepOut.length > 0
+    : tourStep === 'generate' ? !layoutBusy && panels.length > 0
+    : true;
+
   const designReady = canDesign(state);
   const editing = step === 'design';
   const showScene = step !== 'select' && model;
@@ -549,6 +634,7 @@ export function SolarStudio() {
           view={view}
           planPanel={planPanel}
           zones={params.keepOut}
+          highlightedZone={highlightedZone}
           neighbors={showNeighbors ? building.neighbors : null}
           basemap={showBasemap ? basemap : null}
           {...sceneHandlers}
@@ -561,7 +647,7 @@ export function SolarStudio() {
             SR
           </button>
           {/* Its own full-width row on phones; inline on wider screens. */}
-          <div className={`${pillClass} order-last w-full p-1.5 md:order-none md:w-[360px]`}>
+          <div data-tour="search" className={`${pillClass} order-last w-full p-1.5 md:order-none md:w-[360px]`}>
             <PlaceSearch
               placeholder={t.header.search}
               disabled={building.status === 'loading'}
@@ -585,7 +671,11 @@ export function SolarStudio() {
           <button type="button" onClick={() => setLang(lang === 'en' ? 'zh' : 'en')} aria-label={t.switchLabel} className={`${pillClass} h-11 px-3 text-[13px] font-semibold transition active:scale-[0.97]`}>
             {t.switchTo}
           </button>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-start gap-2">
+            <button type="button" onClick={() => setTourIndex(0)} aria-label={t.tour.label} title={t.tour.label} className={`${pillClass} flex h-11 items-center gap-1.5 px-3 text-[13px] font-semibold transition active:scale-[0.97]`}>
+              <span className="grid h-5 w-5 place-items-center rounded-full bg-accent text-[12px] text-white">?</span>
+              <span className="hidden xl:inline">{t.tour.button}</span>
+            </button>
             <StepNav step={step} designReady={designReady} onChange={(next) => dispatch({ type: 'set-step', step: next })} />
           </div>
         </header>
@@ -610,7 +700,8 @@ export function SolarStudio() {
               editable={editing}
               onToolChange={(next) => dispatch({ type: 'set-tool', tool: next })}
               onResetView={() => setView((current) => ({ kind: 'reset', nonce: current.nonce + 1 }))}
-              onTopView={() => setView((current) => ({ kind: 'top', nonce: current.nonce + 1 }))}
+              planView={view.kind === 'top'}
+              onTopView={() => setView((current) => ({ kind: current.kind === 'top' ? 'reset' : 'top', nonce: current.nonce + 1 }))}
               neighborsAvailable={building.neighborStatus === 'ready' && (building.neighbors?.buildingCount ?? 0) > 0}
               showNeighbors={showNeighbors}
               onToggleNeighbors={() => setShowNeighbors((value) => !value)}
@@ -629,6 +720,9 @@ export function SolarStudio() {
               capacityKw={summary.capacityKw}
               dispatch={dispatch}
               onGenerate={() => generate(true)}
+              onHighlightZone={setHighlightedZone}
+              onDetectZones={basemap && layoutContext ? () => void detectZones() : null}
+              detect={detect}
               layoutBusy={layoutBusy}
               neighborStatus={building.neighborStatus}
               neighborCount={building.neighbors?.buildingCount ?? 0}
@@ -689,7 +783,7 @@ export function SolarStudio() {
                   onDeselect={() => dispatch({ type: 'select', ids: [], mode: 'replace' })}
                 />
               )}
-              {editing && selectedIds.length === 0 && <ToolHint tool={tool} editable={editing} />}
+              {editing && selectedIds.length === 0 && <ToolHint tool={tool} editable={editing} planView={view.kind === 'top'} />}
               <div className="pointer-events-auto">
                 <SunBar
                   dateIso={dateIso}
@@ -707,6 +801,7 @@ export function SolarStudio() {
           <p className={`hidden self-start text-[10px] md:block ${step === 'select' ? 'text-white/80 [text-shadow:0_1px_2px_rgb(0_0_0/0.5)]' : 'text-label-tertiary'}`}>{t.attribution}</p>
         </footer>
       </div>
+      {tourIndex !== null && <TourOverlay index={tourIndex} ready={tourReady} onNext={advanceTour} onClose={closeTour} />}
     </main>
   );
 }

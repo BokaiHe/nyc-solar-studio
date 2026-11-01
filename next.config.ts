@@ -12,6 +12,13 @@ const nextConfig: NextConfig = {
   basePath,
   trailingSlash: true,
   images: { unoptimized: true },
+  turbopack: {
+    resolveAlias: {
+      // ONNX Runtime's build that loads its WebAssembly from env.wasm.wasmPaths
+      // (public/ort) instead of bundling a second 15 MB copy.
+      'onnxruntime-web/wasm': './node_modules/onnxruntime-web/dist/ort.wasm.min.mjs',
+    },
+  },
 };
 
 export default nextConfig;
