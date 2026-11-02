@@ -204,5 +204,3 @@ Train on a GPU server with the package's `train/README.md`, then copy `model.fp1
 Code and original documentation: [MIT](LICENSE), © 2026 Bokai He. Building data, imagery (including media that show it), model weights and dependencies are excluded; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
 Data: NYC Open Data / DoITT and TU Munich (buildings) · NYS ITS Geospatial Services (imagery) · NYC / NOAA (LiDAR) · NYC Planning Labs (GeoSearch) · EU JRC PVGIS · US EPA eGRID.
-
-Built by [Bokai He](https://github.com/BokaiHe) with AI-assisted development (Codex); early commits keep the assistant as author. Design history: [docs/DECISIONS.md](docs/DECISIONS.md).
